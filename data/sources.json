@@ -1,0 +1,294 @@
+[
+  {
+    "id": "source_arbeitnow",
+    "name": "Arbeitnow Tech & AI Jobs",
+    "type": "api",
+    "url": "https://www.arbeitnow.com/api/job-board-api",
+    "module_focus": [
+      "M4",
+      "M6"
+    ],
+    "access_method": "GET JSON",
+    "auth_required": false,
+    "rate_limit_rpm": 30,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  },
+  {
+    "id": "source_remotive",
+    "name": "Remotive Remote Opportunities",
+    "type": "api",
+    "url": "https://remotive.com/api/remote-jobs",
+    "module_focus": [
+      "M1",
+      "M2",
+      "M4",
+      "M5"
+    ],
+    "access_method": "GET JSON",
+    "auth_required": false,
+    "rate_limit_rpm": 20,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  },
+  {
+    "id": "source_jobicy",
+    "name": "Jobicy Remote Opportunities",
+    "type": "api",
+    "url": "https://jobicy.com/api/v2/remote-jobs",
+    "module_focus": [
+      "M1",
+      "M2",
+      "M3",
+      "M4",
+      "M5",
+      "M6"
+    ],
+    "access_method": "GET JSON",
+    "auth_required": false,
+    "rate_limit_rpm": 30,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  },
+  {
+    "id": "source_weworkremotely",
+    "name": "We Work Remotely Feeds",
+    "type": "rss",
+    "url": "https://weworkremotely.com/categories/remote-programming-jobs.rss",
+    "module_focus": [
+      "M4",
+      "M6"
+    ],
+    "access_method": "GET XML/RSS",
+    "auth_required": false,
+    "rate_limit_rpm": 15,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  },
+  {
+    "id": "source_workingnomads",
+    "name": "Working Nomads Remote Opportunities",
+    "type": "api",
+    "url": "https://www.workingnomads.com/api/exposed_jobs/",
+    "module_focus": [
+      "M1",
+      "M2",
+      "M3",
+      "M4",
+      "M5",
+      "M6"
+    ],
+    "access_method": "GET JSON",
+    "auth_required": false,
+    "rate_limit_rpm": 30,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  },
+  {
+    "id": "source_nodesk",
+    "name": "NoDesk Remote Opportunities Feed",
+    "type": "rss",
+    "url": "https://nodesk.co/remote-jobs/index.xml",
+    "module_focus": [
+      "M2",
+      "M4",
+      "M5"
+    ],
+    "access_method": "GET XML/Atom",
+    "auth_required": false,
+    "rate_limit_rpm": 20,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  },
+  {
+    "id": "source_dribbble",
+    "name": "Dribbble Creative & Design Jobs",
+    "type": "rss",
+    "url": "https://dribbble.com/jobs.rss",
+    "module_focus": [
+      "M1",
+      "M2"
+    ],
+    "access_method": "GET XML/RSS",
+    "auth_required": false,
+    "rate_limit_rpm": 20,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  },
+  {
+    "id": "source_remoteok",
+    "name": "RemoteOK Gigs & Jobs API",
+    "type": "api",
+    "url": "https://remoteok.com/api",
+    "module_focus": [
+      "M1",
+      "M2",
+      "M4",
+      "M5",
+      "M6"
+    ],
+    "access_method": "GET JSON",
+    "auth_required": false,
+    "rate_limit_rpm": 10,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  },
+  {
+    "id": "source_huggingface",
+    "name": "Hugging Face Community & Tasks",
+    "type": "api",
+    "url": "https://huggingface.co/api/spaces",
+    "module_focus": [
+      "M3",
+      "M4",
+      "M6"
+    ],
+    "access_method": "GET JSON",
+    "auth_required": false,
+    "rate_limit_rpm": 60,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  },
+  {
+    "id": "source_devpost",
+    "name": "Devpost Hackathons & Bounties",
+    "type": "feed",
+    "url": "https://devpost.com/hackathons",
+    "module_focus": [
+      "M1",
+      "M2",
+      "M3",
+      "M4",
+      "M5",
+      "M6"
+    ],
+    "access_method": "GET HTML/JSON Feed",
+    "auth_required": false,
+    "rate_limit_rpm": 10,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  },
+  {
+    "id": "source_kaggle",
+    "name": "Kaggle Competitions & AI Datasets",
+    "type": "api",
+    "url": "https://www.kaggle.com/api/v1/competitions/list",
+    "module_focus": [
+      "M3"
+    ],
+    "access_method": "GET JSON",
+    "auth_required": false,
+    "rate_limit_rpm": 30,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  },
+  {
+    "id": "source_himalayas",
+    "name": "Himalayas Remote Opportunities API",
+    "type": "api",
+    "url": "https://himalayas.app/jobs/api",
+    "module_focus": [
+      "M1",
+      "M2",
+      "M3",
+      "M4",
+      "M5",
+      "M6"
+    ],
+    "access_method": "GET JSON",
+    "auth_required": false,
+    "rate_limit_rpm": 30,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  },
+  {
+    "id": "source_weworkremotely_support",
+    "name": "We Work Remotely Support & Operations",
+    "type": "rss",
+    "url": "https://weworkremotely.com/categories/remote-customer-support-jobs.rss",
+    "module_focus": [
+      "M3",
+      "M5"
+    ],
+    "access_method": "GET XML/RSS",
+    "auth_required": false,
+    "rate_limit_rpm": 15,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  },
+  {
+    "id": "source_fixture_provider",
+    "name": "Local Deterministic Testing Fixtures",
+    "type": "fixture",
+    "url": "local://fixture_provider",
+    "module_focus": [
+      "M1",
+      "M2",
+      "M3",
+      "M4",
+      "M5",
+      "M6"
+    ],
+    "access_method": "Local In-Memory / File",
+    "auth_required": false,
+    "rate_limit_rpm": 1000,
+    "health_status": "healthy",
+    "consecutive_errors": 0,
+    "total_discoveries": 0,
+    "last_checked_at": "2026-10-14T17:26:00.863Z",
+    "last_success_at": "2026-10-14T17:26:00.863Z",
+    "error_log": []
+  }
+]

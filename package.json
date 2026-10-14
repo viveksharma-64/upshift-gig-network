@@ -1,0 +1,30 @@
+{
+  "name": "upshift",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "node --test",
+    "worker:discover": "node src/server/worker.js",
+    "monitor:health": "node src/server/monitor.js",
+    "monitor:daemon": "node src/server/scheduler.js",
+    "verify:secrets": "node scripts/verify_bundle_secrets.mjs",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.45",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "oxlint": "^1.81.0",
+    "vite": "^5.4.21"
+  }
+}
