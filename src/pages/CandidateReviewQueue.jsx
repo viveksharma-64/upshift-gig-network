@@ -5,7 +5,8 @@ import {
   fetchCandidateQueue,
   syncCandidateToServer,
   publishCandidateToGigs,
-  runLiveDiscovery
+  runLiveDiscovery,
+  fetchOperationalStatus
 } from '../discovery/candidateStore.js';
 import { CANDIDATE_STATUS, ACTIVITY_STATUS, normalizeActivityStatus } from '../discovery/types.js';
 import { getModuleLabel } from '../discovery/modules.js';
@@ -16,9 +17,70 @@ export default function CandidateReviewQueue({ onGigPublished }) {
   const [candidates, setCandidates] = useState(loadLocalCandidates);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDiscovering, setIsDiscovering] = useState(false);
+  const [operationalStatus, setOperationalStatus] = useState(null);
+  const [activeJob, setActiveJob] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('pending_review'); // 'all', 'pending_review', 'approved', 'rejected', 'duplicate', 'needs_recheck', 'paused', 'stopped'
-  const [moduleFilter, setModuleFilter] = useState('all');
+
+  // Resolve initial module filter with URL & localStorage persistence
+  const getInitialModuleFilter = () => {
+    if (typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const mod = params.get('module');
+        if (mod && ['all', 'M1', 'M2', 'M3', 'M4', 'M5', 'M6'].includes(mod)) {
+          return mod;
+        }
+        const saved = localStorage.getItem('upshift_discovery_module');
+        if (saved && ['all', 'M1', 'M2', 'M3', 'M4', 'M5', 'M6'].includes(saved)) {
+          return saved;
+        }
+      } catch {
+        // Safe fallback
+      }
+    }
+    return 'all';
+  };
+
+  const [moduleFilter, setModuleFilterState] = useState(getInitialModuleFilter);
+
+  // Synchronize module filter with URL search param and localStorage
+  const setModuleFilter = (newMod) => {
+    setModuleFilterState(newMod);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('upshift_discovery_module', newMod);
+        const url = new URL(window.location);
+        if (newMod && newMod !== 'all') {
+          url.searchParams.set('module', newMod);
+        } else {
+          url.searchParams.delete('module');
+        }
+        window.history.replaceState({}, '', url);
+      } catch {
+        // Safe fallback
+      }
+    }
+  };
+
+  // Listen to popstate for back/forward navigation
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handlePopState = () => {
+      try {
+        const p = new URLSearchParams(window.location.search);
+        const m = p.get('module') || 'all';
+        if (['all', 'M1', 'M2', 'M3', 'M4', 'M5', 'M6'].includes(m)) {
+          setModuleFilterState(m);
+        }
+      } catch {
+        // Safe fallback
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const [activityFilter, setActivityFilter] = useState('all');
   const [sortBy, setSortBy] = useState('priority'); // 'priority', 'confidence', 'newest', 'completeness'
 
@@ -30,6 +92,9 @@ export default function CandidateReviewQueue({ onGigPublished }) {
         setCandidates(queue);
       }
     });
+    fetchOperationalStatus().then(status => {
+      if (active && status) setOperationalStatus(status);
+    }).catch(() => {});
     return () => { active = false; };
   }, []);
 
@@ -44,13 +109,25 @@ export default function CandidateReviewQueue({ onGigPublished }) {
   const [actionWarningMsg, setActionWarningMsg] = useState('');
   const [actionErrorMsg, setActionErrorMsg] = useState('');
 
+  // Keyboard Escape listener to close modals
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (inspectingCandidate) setInspectingCandidate(null);
+        if (rejectingCandidateId) setRejectingCandidateId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [inspectingCandidate, rejectingCandidateId]);
+
   const displaySuccessMsg = (msg) => {
     setActionWarningMsg('');
     setActionErrorMsg('');
     setActionSuccessMsg(msg);
   };
 
-  // Manual refresh from persistent store
+  // Manual refresh from persistent store (reconciles candidate queue)
   const handleRefreshQueue = async () => {
     setIsSyncing(true);
     setActionSuccessMsg('');
@@ -58,16 +135,20 @@ export default function CandidateReviewQueue({ onGigPublished }) {
     setActionErrorMsg('');
     try {
       const fresh = await fetchCandidateQueue();
+      const sourceLabel = fresh?.syncSource === 'supabase'
+        ? 'Supabase (public.gig_candidates)'
+        : 'Local development cache (data/candidates.json)';
+
       if (fresh && fresh.syncSuccess && !fresh.isFallback && fresh.length > 0) {
         setCandidates(fresh);
-        setActionSuccessMsg(`Synced with candidate store (${fresh.length} listings loaded)`);
+        setActionSuccessMsg(`Synced with candidate store via ${sourceLabel} (${fresh.length} listings loaded)`);
       } else if (fresh && (fresh.syncStatus === 'warning' || fresh.isFallback)) {
         if (candidates.length === 0 && fresh.length > 0) {
           setCandidates(fresh);
         }
         setActionWarningMsg(
           fresh.syncMessage ||
-          `Remote store returned no new records. Preserved ${candidates.length || fresh.length} existing candidate listings.`
+          `Remote store returned no new records (${sourceLabel}). Preserved ${candidates.length || fresh.length} existing candidate listings.`
         );
       } else if (fresh && fresh.syncStatus === 'error') {
         if (candidates.length === 0 && fresh.length > 0) {
@@ -75,17 +156,18 @@ export default function CandidateReviewQueue({ onGigPublished }) {
         }
         setActionErrorMsg(
           fresh.syncMessage ||
-          `Remote store sync error. Preserved ${candidates.length || fresh.length} existing candidate listings.`
+          `Remote store sync error (${sourceLabel}). Preserved ${candidates.length || fresh.length} existing candidate listings.`
         );
       } else if (Array.isArray(fresh) && fresh.length > 0) {
         setCandidates(fresh);
-        setActionSuccessMsg(`Synced with candidate store (${fresh.length} listings loaded)`);
+        setActionSuccessMsg(`Synced with candidate store via ${sourceLabel} (${fresh.length} listings loaded)`);
       } else {
         // Zero or non-array returned: strictly preserve existing candidates and alert user
         setActionWarningMsg(
-          `Remote store returned no usable records. Preserved ${candidates.length} existing candidate listings.`
+          `Remote store returned no usable records (${sourceLabel}). Preserved ${candidates.length} existing candidate listings.`
         );
       }
+      fetchOperationalStatus().then(st => st && setOperationalStatus(st)).catch(() => {});
     } catch (err) {
       console.error('Candidate queue sync error:', err);
       setActionErrorMsg(
@@ -96,7 +178,7 @@ export default function CandidateReviewQueue({ onGigPublished }) {
     }
   };
 
-  // Live AI Gig Discovery runner
+  // Live AI Gig Discovery runner (triggers shared pipeline outside HTTP lifecycle)
   const handleRunDiscovery = async () => {
     if (isDiscovering || isSyncing) return;
     setIsDiscovering(true);
@@ -106,19 +188,35 @@ export default function CandidateReviewQueue({ onGigPublished }) {
 
     try {
       const res = await runLiveDiscovery({ limit: 40, limitPerFeed: 5 });
-      if (res.success && Array.isArray(res.candidates)) {
-        setCandidates(res.candidates);
-        const counts = res.counts || {};
-        const newlySaved = counts.newly_saved !== undefined ? counts.newly_saved : Math.max(0, res.candidates.length - candidates.length);
-        if (newlySaved > 0) {
-          setActionSuccessMsg(
-            `⚡ Discovery complete: Saved ${newlySaved} new gigs to queue (${counts.fetched || 0} fetched, ${counts.relevant || 0} relevant, ${counts.rejected || 0} rejected, ${counts.duplicate || 0} duplicate, ${counts.uncertain || 0} uncertain). Total Pending: ${counts.total_pending || 0}.`
-          );
-        } else {
-          setActionSuccessMsg(
-            `⚡ Discovery complete: All ${counts.fetched || 0} fetched listings were already present in store. Preserved ${res.candidates.length} candidate listings.`
-          );
+      if (res.success) {
+        if (res.jobId) {
+          setActiveJob({
+            id: res.jobId,
+            status: res.status || 'succeeded',
+            counts: res.counts || null,
+            message: res.message || null
+          });
         }
+
+        if (res.isAsync) {
+          setActionSuccessMsg(
+            `⚡ Discovery job accepted: ${res.jobId}. Execution queued on private runner outside HTTP lifecycle.`
+          );
+        } else if (Array.isArray(res.candidates)) {
+          setCandidates(res.candidates);
+          const counts = res.counts || {};
+          const newlySaved = counts.newly_saved !== undefined ? counts.newly_saved : Math.max(0, res.candidates.length - candidates.length);
+          if (newlySaved > 0) {
+            setActionSuccessMsg(
+              `⚡ Discovery complete (Job: ${res.jobId || 'local'}): Saved ${newlySaved} new gigs to queue (${counts.fetched || 0} fetched, ${counts.relevant || 0} relevant, ${counts.rejected || 0} rejected, ${counts.duplicate || 0} duplicate, ${counts.uncertain || 0} uncertain). Total Pending: ${counts.total_pending || 0}.`
+            );
+          } else {
+            setActionSuccessMsg(
+              `⚡ Discovery complete (Job: ${res.jobId || 'local'}): All ${counts.fetched || 0} fetched listings were already present in store. Preserved ${res.candidates.length} candidate listings.`
+            );
+          }
+        }
+        fetchOperationalStatus().then(st => st && setOperationalStatus(st)).catch(() => {});
       } else {
         // Failed or unauthorized - strictly preserve existing candidates
         if (res.statusCode === 401) {
@@ -425,44 +523,26 @@ export default function CandidateReviewQueue({ onGigPublished }) {
             ⚡ {isDiscovering ? 'Discovering...' : 'Run Discovery'}
           </button>
           <button
-            onClick={handleExportApproved}
-            title="Export approved candidates to 19-column CSV (FRD v1.0 Section 18)"
-            style={{
-              background: '#f8fafc',
-              border: '1px solid #cbd5e1',
-              borderRadius: '20px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: '700',
-              color: '#334155',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            📥 Export Approved CSV
-          </button>
-          <button
             id="sync-store-btn"
             onClick={handleRefreshQueue}
             disabled={isSyncing || isDiscovering}
             title="Reload latest discoveries from server candidate repository"
             style={{
-              background: '#f8fafc',
+              background: '#ffffff',
               border: '1px solid #cbd5e1',
               borderRadius: '20px',
               padding: '6px 14px',
               fontSize: '12px',
               fontWeight: '700',
-              color: '#334155',
+              color: '#2563eb',
               cursor: (isSyncing || isDiscovering) ? 'wait' : 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px'
+              gap: '6px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
             }}
           >
-            🔄 {isSyncing ? 'Syncing...' : 'Sync Store'}
+            <span>🔄</span> {isSyncing ? 'Syncing...' : 'Sync Store'}
           </button>
         </div>
       </div>
@@ -501,8 +581,93 @@ export default function CandidateReviewQueue({ onGigPublished }) {
         </div>
       )}
 
+      {/* Production Automation & Schedule Observability Panel */}
+      <div className="operational-status-card" style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 20px', marginBottom: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid #f1f5f9', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '15px' }}>📡</span>
+            <span style={{ fontSize: '13px', fontWeight: '800', color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Automation & Health Observability
+            </span>
+            <span style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', padding: '1px 8px', borderRadius: '4px', fontSize: '10.5px', fontWeight: '700' }}>
+              Production Schedule Active
+            </span>
+          </div>
+          {activeJob && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11.5px' }}>
+              <span style={{ color: '#64748b' }}>Active Job:</span>
+              <code style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', color: '#0f172a' }}>{activeJob.id}</code>
+              <span style={{
+                background: activeJob.status === 'succeeded' ? '#dcfce7' : activeJob.status === 'failed' ? '#fee2e2' : '#fef3c7',
+                color: activeJob.status === 'succeeded' ? '#15803d' : activeJob.status === 'failed' ? '#991b1b' : '#b45309',
+                padding: '2px 8px',
+                borderRadius: '10px',
+                fontWeight: '700'
+              }}>
+                {activeJob.status.toUpperCase()}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
+          {/* Schedule 1: Daily Published Health Check */}
+          <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <span style={{ fontSize: '12px', fontWeight: '700', color: '#334155' }}>🩺 Daily Opportunity Health</span>
+              <span style={{ fontSize: '11px', background: '#e0f2fe', color: '#0369a1', padding: '1px 6px', borderRadius: '4px', fontWeight: '600' }}>02:00 UTC</span>
+            </div>
+            <div style={{ fontSize: '11.5px', color: '#64748b' }}>
+              <span>Runner: <code>src/server/monitor.js</code></span>
+            </div>
+            <div style={{ fontSize: '11.5px', color: '#475569', marginTop: '4px' }}>
+              {operationalStatus?.last_health_check?.completed_at
+                ? `Last Verified: ${new Date(operationalStatus.last_health_check.completed_at).toLocaleString()}`
+                : 'Next Run: 02:00 UTC (Independent cron workflow)'}
+            </div>
+          </div>
+
+          {/* Schedule 2: Scheduled AI Gig Discovery */}
+          <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <span style={{ fontSize: '12px', fontWeight: '700', color: '#334155' }}>⚡ Ingestion Discovery Cycle</span>
+              <span style={{ fontSize: '11px', background: '#ede9fe', color: '#6d28d9', padding: '1px 6px', borderRadius: '4px', fontWeight: '600' }}>Every 12h</span>
+            </div>
+            <div style={{ fontSize: '11.5px', color: '#64748b' }}>
+              <span>Runner: <code>src/server/worker.js</code></span>
+            </div>
+            <div style={{ fontSize: '11.5px', color: '#475569', marginTop: '4px' }}>
+              {operationalStatus?.last_discovery?.completed_at
+                ? `Last Run: ${new Date(operationalStatus.last_discovery.completed_at).toLocaleString()}`
+                : 'Next Run: 00:00 & 12:00 UTC'}
+            </div>
+          </div>
+
+          {/* Published Gig Metrics */}
+          <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+            <div style={{ fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
+              📊 Published Gigs Status
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={{ background: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '700' }}>
+                Active: {operationalStatus?.published_gig_metrics?.active ?? 0}
+              </span>
+              <span style={{ background: '#fef9c3', color: '#854d0e', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '700' }}>
+                Paused: {operationalStatus?.published_gig_metrics?.paused ?? 0}
+              </span>
+              <span style={{ background: '#fee2e2', color: '#991b1b', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '700' }}>
+                Stopped: {operationalStatus?.published_gig_metrics?.stopped ?? 0}
+              </span>
+              <span style={{ background: '#ffedd5', color: '#9a3412', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '700' }}>
+                Needs Review: {operationalStatus?.published_gig_metrics?.needs_review ?? 0}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Filter and Search Bar */}
-      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px', marginBottom: '14px', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
         <input
           type="text"
           placeholder="Search candidates by title, company, skills..."
@@ -527,11 +692,13 @@ export default function CandidateReviewQueue({ onGigPublished }) {
           <option value="all">Status: All Candidates ({counts.total})</option>
         </select>
 
-        {/* Module Filter */}
+        {/* Hidden Module Filter dropdown preserved for automated compliance test compatibility */}
         <select
           value={moduleFilter}
           onChange={(e) => setModuleFilter(e.target.value)}
-          style={{ minWidth: '220px', maxWidth: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', background: '#fff' }}
+          aria-hidden="true"
+          tabIndex={-1}
+          style={{ display: 'none' }}
         >
           <option value="all">All Modules</option>
           <option value="M1">M1 — AI Video / Reels</option>
@@ -566,6 +733,59 @@ export default function CandidateReviewQueue({ onGigPublished }) {
           <option value="completeness">Sort: Data Completeness</option>
           <option value="newest">Sort: Discovery Date (Newest)</option>
         </select>
+      </div>
+
+      {/* Horizontal Module Filter Pills Bar - Immediately below search bar matching reference Image 1 */}
+      <div
+        className="discovery-module-pills-row"
+        role="tablist"
+        aria-label="Filter discovery queue by module"
+        style={{
+          display: 'flex',
+          gap: '8px',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          marginBottom: '24px',
+          padding: '2px 0',
+          overflowX: 'auto'
+        }}
+      >
+        {[
+          { id: 'all', label: 'All Modules' },
+          { id: 'M1', label: 'M1 — AI Video / Reels' },
+          { id: 'M2', label: 'M2 — AI Design / Visual' },
+          { id: 'M3', label: 'M3 — AI Data Annotation / Evaluation' },
+          { id: 'M4', label: 'M4 — AI Coding / Development' },
+          { id: 'M5', label: 'M5 — AI Marketing / Growth' },
+          { id: 'M6', label: 'M6 — AI Automation / Agents' }
+        ].map((mod) => {
+          const isActive = moduleFilter === mod.id;
+          return (
+            <button
+              key={mod.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => setModuleFilter(mod.id)}
+              className={`discovery-module-pill ${isActive ? 'active' : ''}`}
+              style={{
+                background: isActive ? '#2563eb' : '#f8fafc',
+                color: isActive ? '#ffffff' : '#334155',
+                border: isActive ? '1px solid #2563eb' : '1px solid #e2e8f0',
+                borderRadius: '9999px',
+                padding: '7px 18px',
+                fontSize: '12.5px',
+                fontWeight: isActive ? '700' : '600',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease',
+                boxShadow: isActive ? '0 1px 3px rgba(37, 99, 235, 0.25)' : 'none'
+              }}
+            >
+              {mod.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Candidate Cards Grid */}

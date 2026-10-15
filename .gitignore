@@ -40,6 +40,7 @@ scratch/
 data/*.lock
 data/monitor_audit.json
 data/notifications.json
+data/discovery_jobs.json
 data/test_*
 test_output*
 

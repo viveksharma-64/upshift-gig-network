@@ -66,7 +66,6 @@ export const GIG_CANDIDATES_TABLE = 'gig_candidates';
 /**
  * Resolves verified administrative authentication headers for backend API requests.
  * Checks for a live, non-expired Supabase session and attempts auto-refresh if expiring.
- * In non-production development environments, falls back to dev-admin-token when the local user has admin role.
  *
  * @returns {Promise<{ headers: Record<string, string>, hasToken: boolean, source: string, error?: string }>}
  */
@@ -93,16 +92,6 @@ export async function getAdminAuthHeader() {
       }
     }
   } catch {}
-
-  // 2. In non-production development environments ONLY:
-  // If local user has administrator role, provide development admin token
-  const isDev = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV) ||
-    (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production');
-
-  if (isDev && typeof window !== 'undefined' && localStorage.getItem('upshift_role') === 'admin') {
-    headers['Authorization'] = 'Bearer dev-admin-token';
-    return { headers, hasToken: true, source: 'dev-token' };
-  }
 
   return { headers, hasToken: false, source: 'none' };
 }
@@ -694,11 +683,26 @@ export async function runLiveDiscovery(options = {}) {
     }
 
     const data = await response.json();
+
+    // Handle asynchronous job acceptance (HTTP 202 Accepted)
+    if (response.status === 202 || (data.success && data.status === 'pending')) {
+      return {
+        success: true,
+        isAsync: true,
+        jobId: data.jobId,
+        status: data.status || 'pending',
+        message: data.message || `Discovery job ${data.jobId} queued successfully.`,
+        counts: data.counts || null,
+        candidates: loadLocalCandidates()
+      };
+    }
+
     if (data.success && Array.isArray(data.candidates)) {
       const mapped = data.candidates.map(createCandidate);
       saveLocalCandidates(mapped);
       return {
         success: true,
+        jobId: data.jobId || null,
         counts: data.counts || {
           fetched: mapped.length,
           relevant: mapped.length,
@@ -725,5 +729,59 @@ export async function runLiveDiscovery(options = {}) {
     };
   }
 }
+
+/**
+ * Fetches operational status and schedule observability metrics
+ * @returns {Promise<object>}
+ */
+export async function fetchOperationalStatus() {
+  const fallback = {
+    last_discovery: null,
+    last_health_check: null,
+    next_schedules: {
+      daily_health_check: {
+        cron: '0 2 * * *',
+        utc_time: '02:00 UTC daily',
+        description: 'Daily automated opportunity and source health verification'
+      },
+      discovery_cycle: {
+        cron: '0 */12 * * *',
+        utc_time: '00:00 & 12:00 UTC (every 12 hours)',
+        description: 'Automated candidate discovery across permitted feeds and APIs'
+      }
+    },
+    published_gig_metrics: { active: 0, paused: 0, stopped: 0, needs_review: 0 }
+  };
+
+  if (typeof fetch !== 'function') return fallback;
+
+  try {
+    const { headers, hasToken } = await getAdminAuthHeader();
+    if (hasToken) {
+      const res = await fetch('/api/discovery/status', { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) return data;
+      }
+    }
+  } catch {}
+
+  // Direct Supabase fallback for metrics if API route unavailable
+  try {
+    const { data: gigs } = await supabase.from('gigs').select('status');
+    if (Array.isArray(gigs)) {
+      for (const g of gigs) {
+        const st = (g.status || 'Active').toLowerCase();
+        if (st === 'active') fallback.published_gig_metrics.active++;
+        else if (st === 'paused') fallback.published_gig_metrics.paused++;
+        else if (st === 'stopped') fallback.published_gig_metrics.stopped++;
+        else if (st.includes('review')) fallback.published_gig_metrics.needs_review++;
+      }
+    }
+  } catch {}
+
+  return fallback;
+}
+
 
 

@@ -19,6 +19,31 @@ export const FORBIDDEN_SECRET_RULES = [
 ];
 
 /**
+ * Detects Supabase Service Role JWTs by inspecting token structure and decoding
+ * the payload segment. Differentiates privileged service_role tokens from
+ * legitimate, public anon tokens. NEVER prints or exposes the token value.
+ * @param {string} content
+ * @returns {boolean} true if a service_role JWT is detected
+ */
+export function hasServiceRoleJwtLeak(content) {
+  if (!content || typeof content !== 'string') return false;
+  // Match standard JWT structure: header.payload.signature
+  const jwtRegex = /eyJ[a-zA-Z0-9_-]{10,}\.([a-zA-Z0-9_-]{10,})\.[a-zA-Z0-9_-]{10,}/g;
+  let match;
+  while ((match = jwtRegex.exec(content)) !== null) {
+    try {
+      let b64 = match[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4 !== 0) b64 += '=';
+      const decoded = Buffer.from(b64, 'base64').toString('utf8');
+      if (decoded.includes('"role":"service_role"') || decoded.includes('"role": "service_role"')) {
+        return true;
+      }
+    } catch {}
+  }
+  return false;
+}
+
+/**
  * Scans a single file for secret patterns.
  * Returns only rule names without exposing secret values.
  * @param {string} filePath
@@ -33,6 +58,10 @@ export function scanFileForSecrets(filePath) {
     if (rule.pattern.test(content)) {
       violations.push(rule.name);
     }
+  }
+
+  if (hasServiceRoleJwtLeak(content)) {
+    violations.push('Supabase Service Role Key');
   }
 
   return violations;

@@ -1038,7 +1038,20 @@ describe('API Authorization & Adversarial Security Tests', () => {
     assert.ok(violations.length > 0);
     assert.equal(violations.includes('Test Sentinel'), true);
 
-    // 2. Clean asset
+    // 2. Synthetic Supabase Service Role token must be detected
+    const syntheticServiceRoleJwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJleHAiOjE5OTk5OTk5OTl9.c3ludGhldGljX3NpZ25hdHVyZV9mb3JfdGVzdGluZ19vbmx5';
+    await fs.writeFile(testSentinelFile, `const serverRoleKey = "${syntheticServiceRoleJwt}";`);
+    const serviceRoleViolations = scanFileForSecrets(testSentinelFile);
+    assert.ok(serviceRoleViolations.length > 0);
+    assert.equal(serviceRoleViolations.includes('Supabase Service Role Key'), true);
+
+    // 3. Synthetic public anon token must NOT be falsely flagged
+    const syntheticAnonJwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiZXhwIjoxOTk5OTk5OTk5fQ.c3ludGhldGljX3NpZ25hdHVyZV9mb3JfdGVzdGluZ19vbmx5';
+    await fs.writeFile(testSentinelFile, `const anonKey = "${syntheticAnonJwt}";`);
+    const anonViolations = scanFileForSecrets(testSentinelFile);
+    assert.equal(anonViolations.length, 0, 'Public anon token must not trigger secret leak violations');
+
+    // 4. Clean asset
     await fs.writeFile(testSentinelFile, 'const cleanBundle = "hello world";');
     const cleanViolations = scanFileForSecrets(testSentinelFile);
     assert.equal(cleanViolations.length, 0);

@@ -126,7 +126,7 @@ export function createCandidate(data = {}) {
   const now = new Date().toISOString();
   
   return {
-    id: data.id || `cand_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    id: data.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? `cand_${crypto.randomUUID()}` : `cand_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`),
     source_name: data.source_name || 'unknown_source',
     source_type: data.source_type || SOURCE_TYPE.FIXTURE,
     source_listing_id: data.source_listing_id || null,

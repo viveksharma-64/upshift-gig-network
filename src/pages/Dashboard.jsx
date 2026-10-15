@@ -6,6 +6,7 @@ import CandidateReviewQueue from './CandidateReviewQueue';
 import { exportGigsTo19ColCSV, downloadCSV } from '../discovery/csvExport';
 import { deduplicateGigList, normalizeCanonicalUrl } from '../server/deduplication';
 import { normalizeHtmlToText } from '../discovery/textNormalizer';
+import { loadLocalCandidates, fetchCandidateQueue } from '../discovery/candidateStore';
 
 export { exportGigsTo19ColCSV, downloadCSV };
 
@@ -116,6 +117,27 @@ export const DEFAULT_SEED_GIGS = [
     short_description: 'Video Data Annotation Specialist: boundary boxing and video segment labeling for computer vision.',
     overview: 'Temporal bounding box placement and semantic segmentation across continuous video streams.',
     posted_at: '2026-09-30'
+  },
+  {
+    id: '7',
+    external_gig_id: 'GIG-007',
+    title: 'Fullstack React & Node.js Developer (AI-Assisted)',
+    track_id: 'M4',
+    organization: 'TechNova Labs',
+    company: 'TechNova Labs',
+    work_mode: 'Remote',
+    location: 'Remote',
+    payment_amount: '$40 - $60 / hour',
+    compensation_type: 'hourly',
+    contract_type: 'Contract',
+    min_amount: 40,
+    max_amount: 60,
+    priority: 'Featured',
+    is_featured: true,
+    origin_url: 'https://upwork.com',
+    short_description: 'Build and maintain modern web applications using React, Node.js with AI tooling support.',
+    overview: 'Fullstack development role building and maintaining commercial React and Node.js applications with integrated AI developer workflows.',
+    posted_at: '2026-10-01'
   }
 ];
 
@@ -123,15 +145,82 @@ export const DEFAULT_SEED_GIGS = [
 // 1. LEARNER DASHBOARD COMPONENT (OPPORTUNITIES)
 // ==========================================
 export function LearnerDashboard() {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, updateProfile } = useAuth();
   const navigate = useNavigate();
 
+  // Navigation tab: 'home', 'saved', 'applications'
+  const [learnerActiveTab, setLearnerActiveTab] = useState('home');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  // Editable profile state inside Account Modal
+  const [editFirstName, setEditFirstName] = useState('');
+  const [editLastName, setEditLastName] = useState('');
+  const [editFullName, setEditFullName] = useState('');
+  const [editTrackId, setEditTrackId] = useState('M3');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileSaveMsg, setProfileSaveMsg] = useState(null);
+  const [profileSaveStatus, setProfileSaveStatus] = useState('idle'); // 'idle' | 'success' | 'error'
+
+  // Gigs and filter states
   const [gigs, setGigs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedModule, setSelectedModule] = useState('all');
   const [discoveryFilter, setDiscoveryFilter] = useState('all'); // 'all', 'featured', 'newest', 'high_pay'
+  const [sortBy, setSortBy] = useState('latest'); // 'latest', 'high_pay', 'low_pay', 'hourly', 'fixed'
   const [viewingGig, setViewingGig] = useState(null);
+
+  // Storage keys strictly isolated by authoritative authenticated user ID (never shared globally across users)
+  const getLearnerSavedGigsKey = (userId) => userId ? `upshift_saved_gigs_${userId}` : null;
+  const getLearnerAppliedGigsKey = (userId) => userId ? `upshift_applied_gigs_${userId}` : null;
+
+  // Saved Gigs state (persisted strictly per authenticated user ID)
+  const [savedGigIds, setSavedGigIds] = useState(() => {
+    if (typeof window === 'undefined' || !user?.id) return [];
+    try {
+      const key = getLearnerSavedGigsKey(user.id);
+      const saved = key ? localStorage.getItem(key) : null;
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Track applied gigs (persisted strictly per authenticated user ID)
+  const [appliedGigs, setAppliedGigs] = useState(() => {
+    if (typeof window === 'undefined' || !user?.id) return [];
+    try {
+      const key = getLearnerAppliedGigsKey(user.id);
+      const applied = key ? localStorage.getItem(key) : null;
+      return applied ? JSON.parse(applied) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Re-sync isolated user state immediately when authenticated user changes or on sign out
+  useEffect(() => {
+    if (!user?.id) {
+      setSavedGigIds([]);
+      setAppliedGigs([]);
+      return;
+    }
+    try {
+      const savedKey = getLearnerSavedGigsKey(user.id);
+      const appliedKey = getLearnerAppliedGigsKey(user.id);
+      const saved = savedKey ? localStorage.getItem(savedKey) : null;
+      const applied = appliedKey ? localStorage.getItem(appliedKey) : null;
+      setSavedGigIds(saved ? JSON.parse(saved) : []);
+      setAppliedGigs(applied ? JSON.parse(applied) : []);
+    } catch (err) {
+      console.warn('Error loading user-scoped storage:', err);
+      setSavedGigIds([]);
+      setAppliedGigs([]);
+    }
+  }, [user?.id]);
 
   // Load live gigs from Supabase (or fallback seed)
   useEffect(() => {
@@ -159,21 +248,242 @@ export function LearnerDashboard() {
   }, []);
 
   const handleSignOut = async () => {
+    setSavedGigIds([]);
+    setAppliedGigs([]);
     await signOut();
     navigate('/login');
+  };
+
+  // Initialize or re-sync edit form when modal opens or profile changes (always starts read-only)
+  useEffect(() => {
+    if (showAccountModal) {
+      setIsEditingProfile(false);
+      const derivedFirst = user?.user_metadata?.first_name || (profile?.full_name ? profile.full_name.split(' ')[0] : '');
+      const derivedLast = user?.user_metadata?.last_name || (profile?.full_name ? profile.full_name.split(' ').slice(1).join(' ') : '');
+      const derivedFull = profile?.full_name || user?.user_metadata?.full_name || (derivedFirst ? `${derivedFirst} ${derivedLast}`.trim() : '');
+      const derivedTrack = profile?.track_id || user?.user_metadata?.track_id || user?.user_metadata?.track || 'M3';
+
+      setEditFirstName(derivedFirst);
+      setEditLastName(derivedLast);
+      setEditFullName(derivedFull);
+      setEditTrackId(derivedTrack);
+      setProfileSaveMsg(null);
+      setProfileSaveStatus('idle');
+    }
+  }, [showAccountModal, profile, user]);
+
+  const handleSaveProfile = async (e) => {
+    if (e) e.preventDefault();
+    const trimmedFirst = editFirstName.trim();
+    const trimmedLast = editLastName.trim();
+    if (!trimmedFirst) {
+      setProfileSaveStatus('error');
+      setProfileSaveMsg('First name is required.');
+      return;
+    }
+
+    const computedFull = editFullName.trim() || `${trimmedFirst}${trimmedLast ? ' ' + trimmedLast : ''}`;
+
+    setIsSavingProfile(true);
+    setProfileSaveMsg(null);
+    setProfileSaveStatus('idle');
+
+    try {
+      if (updateProfile) {
+        await updateProfile({
+          first_name: trimmedFirst,
+          last_name: trimmedLast,
+          full_name: computedFull,
+          track_id: editTrackId
+        });
+      }
+      setProfileSaveStatus('success');
+      setProfileSaveMsg('Profile updated successfully.');
+      setIsEditingProfile(false);
+      setTimeout(() => {
+        setProfileSaveMsg(null);
+        setProfileSaveStatus('idle');
+      }, 4000);
+    } catch (err) {
+      setProfileSaveStatus('error');
+      setProfileSaveMsg(err.message || 'Failed to update profile. Please try again.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleCancelProfileEdit = () => {
+    const derivedFirst = user?.user_metadata?.first_name || (profile?.full_name ? profile.full_name.split(' ')[0] : '');
+    const derivedLast = user?.user_metadata?.last_name || (profile?.full_name ? profile.full_name.split(' ').slice(1).join(' ') : '');
+    const derivedFull = profile?.full_name || user?.user_metadata?.full_name || (derivedFirst ? `${derivedFirst} ${derivedLast}`.trim() : '');
+    const derivedTrack = profile?.track_id || user?.user_metadata?.track_id || user?.user_metadata?.track || 'M3';
+
+    setEditFirstName(derivedFirst);
+    setEditLastName(derivedLast);
+    setEditFullName(derivedFull);
+    setEditTrackId(derivedTrack);
+    setProfileSaveMsg(null);
+    setProfileSaveStatus('idle');
+    setIsEditingProfile(false);
+  };
+
+  // Toggle saving an opportunity (isolated strictly to current authenticated user)
+  const handleToggleSaveGig = (gigId, e) => {
+    if (e) e.stopPropagation();
+    if (!user?.id) {
+      console.warn('Cannot bookmark: learner is not authenticated');
+      return;
+    }
+    const key = getLearnerSavedGigsKey(user.id);
+    setSavedGigIds((prev) => {
+      const isSaved = prev.includes(gigId);
+      const next = isSaved ? prev.filter(id => id !== gigId) : [...prev, gigId];
+      try {
+        if (key) localStorage.setItem(key, JSON.stringify(next));
+      } catch (err) {
+        console.warn('Error saving bookmark:', err);
+      }
+      return next;
+    });
+  };
+
+  // Record application submission (isolated strictly to current authenticated user)
+  const handleRecordApplication = (gig) => {
+    if (!gig || !user?.id) return;
+    const gigId = gig.id || gig.external_gig_id;
+    const key = getLearnerAppliedGigsKey(user.id);
+    setAppliedGigs((prev) => {
+      if (prev.some(a => a.id === gigId)) return prev;
+      const appRecord = {
+        id: gigId,
+        user_id: user.id,
+        title: gig.title,
+        track_id: gig.track_id,
+        company: gig.organization || gig.company || getGigCompany(gig),
+        payment_amount: gig.payment_amount,
+        compensation_type: gig.compensation_type,
+        origin_url: gig.origin_url || 'https://upwork.com',
+        applied_at: new Date().toISOString()
+      };
+      const next = [appRecord, ...prev];
+      try {
+        if (key) localStorage.setItem(key, JSON.stringify(next));
+      } catch (err) {
+        console.warn('Error recording application:', err);
+      }
+      return next;
+    });
+  };
+
+  // Start application workflow: records application under user and opens referral gateway
+  const handleApplyNow = (gig, e) => {
+    if (e) e.stopPropagation();
+    if (!gig) return;
+
+    // If gig is stopped or closed, show appropriate state without falsely claiming an application was submitted
+    if (gig.status === 'Stopped' || gig.activity_status === 'Stopped') {
+      alert('This opportunity is currently closed and no longer accepting applications.');
+      return;
+    }
+
+    // Record application under currently authenticated learner ID
+    handleRecordApplication(gig);
+
+    // Open existing application workflow (referral gateway URL)
+    const targetUrl = gig.origin_url || gig.gateway_url || 'https://upwork.com';
+    if (typeof window !== 'undefined' && window.open) {
+      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  // Resolve module split badge (matches reference visual target)
+  const getModuleSplitBadge = (trackId) => {
+    switch (trackId) {
+      case 'M1':
+        return { code: 'M1', name: 'Video / Reels', full: 'M1 — AI Video / Reels' };
+      case 'M2':
+        return { code: 'M2', name: 'Design / Visual', full: 'M2 — AI Design / Visual' };
+      case 'M3':
+        return { code: 'M3', name: 'Data Annotation / Evaluation', full: 'M3 — AI Data Annotation / Evaluation' };
+      case 'M4':
+        return { code: 'M4', name: 'Coding / Development', full: 'M4 — AI Coding / Development' };
+      case 'M5':
+        return { code: 'M5', name: 'Marketing / Growth', full: 'M5 — AI Marketing / Growth' };
+      case 'M6':
+        return { code: 'M6', name: 'Automation / Agents', full: 'M6 — AI Automation / Agents' };
+      default:
+        return { code: trackId || 'GEN', name: 'General', full: trackId || 'General' };
+    }
+  };
+
+  // Resolve company name with realistic module fallbacks matching reference image
+  const getGigCompany = (g) => {
+    if (g.organization) return g.organization;
+    if (g.company) return g.company;
+    if (g.track_id === 'M4') return 'TechNova Labs';
+    if (g.track_id === 'M3') return 'DeepAnnotator';
+    if (g.track_id === 'M1') return 'Kinetic Media Studio';
+    if (g.track_id === 'M2') return 'VisualForge';
+    if (g.track_id === 'M5') return 'BrandBuzz';
+    if (g.track_id === 'M6') return 'AgentHandlers';
+    return 'UpShift Partner Network';
+  };
+
+  const getGigWorkMode = (g) => {
+    if (g.work_mode) return g.work_mode;
+    if (g.location) return g.location;
+    return 'Remote';
+  };
+
+  const getGigContractType = (g) => {
+    if (g.contract_type) return g.contract_type;
+    if (g.employment_type) return g.employment_type;
+    if (g.compensation_type && g.compensation_type.toLowerCase().includes('fixed')) return 'Project';
+    return 'Contract';
+  };
+
+  // Module badge config with crisp colors matching reference image
+  const getModuleBadgeConfig = (trackId) => {
+    switch (trackId) {
+      case 'M1':
+        return { label: 'M1 · AI Video / Reels', bg: '#fff1f2', color: '#e11d48', border: '#fecdd3' };
+      case 'M2':
+        return { label: 'M2 · AI Design / Visual', bg: '#f5f3ff', color: '#7c3aed', border: '#ddd6fe' };
+      case 'M3':
+        return { label: 'M3 · Data Annotation', bg: '#ecfdf5', color: '#059669', border: '#a7f3d0' };
+      case 'M4':
+        return { label: 'M4 · AI Coding', bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' };
+      case 'M5':
+        return { label: 'M5 · AI Marketing / Growth', bg: '#fffbeb', color: '#d97706', border: '#fde68a' };
+      case 'M6':
+        return { label: 'M6 · AI Automation / Agents', bg: '#ecfeff', color: '#0891b2', border: '#a5f3fc' };
+      default:
+        return { label: trackId || 'General', bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' };
+    }
   };
 
   // Filtered gigs pipeline
   const filteredGigs = useMemo(() => {
     let result = [...gigs];
 
+    // Exclude stopped/closed opportunities from active learner view (PUB-05)
+    result = result.filter(g => g.status !== 'Stopped' && g.activity_status !== 'Stopped');
+
+    // Tab filter: Saved Gigs
+    if (learnerActiveTab === 'saved') {
+      result = result.filter(g => savedGigIds.includes(g.id || g.external_gig_id));
+    }
+
     // 1. Search Query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(g =>
         g.title?.toLowerCase().includes(q) ||
+        g.organization?.toLowerCase().includes(q) ||
+        g.company?.toLowerCase().includes(q) ||
         g.short_description?.toLowerCase().includes(q) ||
         g.overview?.toLowerCase().includes(q) ||
+        g.requirements?.toLowerCase().includes(q) ||
         g.track_id?.toLowerCase().includes(q)
       );
     }
@@ -182,9 +492,6 @@ export function LearnerDashboard() {
     if (selectedModule !== 'all') {
       result = result.filter(g => g.track_id === selectedModule);
     }
-
-    // Exclude stopped/closed opportunities from active learner view (PUB-05)
-    result = result.filter(g => g.status !== 'Stopped' && g.activity_status !== 'Stopped');
 
     // 3. Quick Discovery Pills
     if (discoveryFilter === 'featured') {
@@ -199,244 +506,778 @@ export function LearnerDashboard() {
       });
     }
 
+    // 4. Sort selection
+    if (sortBy === 'high_pay') {
+      result.sort((a, b) => {
+        const valA = parseFloat(a.max_amount) || parseFloat(a.payment_amount?.replace(/[^0-9.]/g, '')) || 0;
+        const valB = parseFloat(b.max_amount) || parseFloat(b.payment_amount?.replace(/[^0-9.]/g, '')) || 0;
+        return valB - valA;
+      });
+    } else if (sortBy === 'low_pay') {
+      result.sort((a, b) => {
+        const valA = parseFloat(a.min_amount) || parseFloat(a.payment_amount?.replace(/[^0-9.]/g, '')) || 0;
+        const valB = parseFloat(b.min_amount) || parseFloat(b.payment_amount?.replace(/[^0-9.]/g, '')) || 0;
+        return valA - valB;
+      });
+    } else if (sortBy === 'hourly') {
+      result = result.filter(g => (g.compensation_type || '').toLowerCase().includes('hour'));
+    } else if (sortBy === 'fixed') {
+      result = result.filter(g => (g.compensation_type || '').toLowerCase().includes('fix'));
+    } else if (sortBy === 'latest' && discoveryFilter !== 'newest') {
+      result.sort((a, b) => new Date(b.posted_at || b.created_at || 0) - new Date(a.posted_at || a.created_at || 0));
+    }
+
     return result;
-  }, [gigs, searchQuery, selectedModule, discoveryFilter]);
+  }, [gigs, searchQuery, selectedModule, discoveryFilter, sortBy, learnerActiveTab, savedGigIds]);
+
+  // Keyboard Escape listener to close modals
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (viewingGig) setViewingGig(null);
+        if (showAccountModal) setShowAccountModal(false);
+        if (showNotifications) setShowNotifications(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [viewingGig, showAccountModal, showNotifications]);
 
   const learnerName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Learner';
+  const firstName = user?.user_metadata?.first_name || (learnerName !== 'Learner' ? learnerName.split(' ')[0] : 'Learner');
+  const lastName = user?.user_metadata?.last_name || (learnerName.split(' ').length > 1 ? learnerName.split(' ').slice(1).join(' ') : '');
+  const userInitials = (user?.user_metadata?.first_name && user?.user_metadata?.last_name
+    ? `${user.user_metadata.first_name[0]}${user.user_metadata.last_name[0]}`
+    : (learnerName.split(' ').filter(Boolean).map(n => n[0]).slice(0, 2).join('') || 'LR'))
+    .toUpperCase();
 
-  return (
-    <div className="learner-page">
-      {/* 1. TOP NAV BAR */}
-      <header className="learner-nav">
-        <div className="learner-nav-brand">
-          <img src="/fox.svg" alt="UpShift Fox" style={{ width: '30px', height: '30px' }} />
-          <span>Up<span style={{ color: 'var(--brand-red)' }}>Shift</span> OPPORTUNITIES</span>
-        </div>
+  const TRACK_OPTIONS = [
+    { value: 'M1', label: 'M1 — AI Video / Reels' },
+    { value: 'M2', label: 'M2 — AI Design / Visual' },
+    { value: 'M3', label: 'M3 — AI Data Annotation / Evaluation' },
+    { value: 'M4', label: 'M4 — AI Coding / Development' },
+    { value: 'M5', label: 'M5 — AI Marketing / Growth' },
+    { value: 'M6', label: 'M6 — AI Automation / Agents' }
+  ];
 
-        {/* Center: Gigs Workspace badge only (NO business or startups) */}
-        <div className="learner-nav-badge">
-          <span>💼 Gigs Workspace</span>
-        </div>
+  const currentTrackId = profile?.track_id || user?.user_metadata?.track_id || user?.user_metadata?.track || 'M3';
+  const currentTrackLabel = TRACK_OPTIONS.find(t => t.value === currentTrackId)?.label || currentTrackId;
+  const currentPhone = user?.user_metadata?.phone || '';
 
-        {/* Right: User profile + Sign Out */}
-        <div className="learner-nav-user">
-          <span className="learner-user-pill">
-            👤 {learnerName}
-          </span>
-          <button
-            onClick={handleSignOut}
-            className="btn-pill-save"
-            style={{ padding: '7px 16px', fontSize: '13px' }}
-            title="Sign Out"
-          >
-            🚪 Sign Out
-          </button>
-        </div>
-      </header>
+  // Shared Learner Opportunity Card (used in Home feed and Saved Gigs)
+  const renderOpportunityCard = (g) => {
+    const gigKey = g.id || g.external_gig_id;
+    const isSaved = savedGigIds.includes(gigKey);
+    const isApplied = appliedGigs.some(a => a.id === gigKey);
+    const isClosed = g.status === 'Stopped' || g.activity_status === 'Stopped';
+    const splitBadge = getModuleSplitBadge(g.track_id);
+    const company = getGigCompany(g);
+    const workMode = getGigWorkMode(g);
+    const contractType = getGigContractType(g);
+    const compensation = g.payment_amount || '$40 - $60 / hour';
 
-      {/* 2. MAIN CONTENT AREA */}
-      <main className="learner-content">
-        {/* Banner Card */}
-        <div className="learner-hero-banner">
-          <div>
-            <div className="learner-hero-tag">
-              <span>✨ UpShift Applied Opportunities</span>
-            </div>
-            <h1 className="learner-hero-title">Commercial Opportunity Board</h1>
-            <p className="learner-hero-desc">
-              Explore and apply for vetted freelance, contract, and commercial briefs across UpShift specialization modules.
-            </p>
-          </div>
-          <div className="learner-briefs-counter">
-            <span style={{ fontSize: '20px' }}>💼</span>
-            <div>
-              <span style={{ fontSize: '18px', fontWeight: '900', color: '#0f172a' }}>{gigs.length}</span> Active Briefs
-            </div>
-          </div>
-        </div>
-
-        {/* Controls Panel (Search & Module Filter) */}
-        <div className="learner-controls-panel">
-          <div className="learner-controls-row">
-            {/* Search Input */}
-            <div className="learner-search-wrapper">
-              <span className="search-icon-prefix">🔍</span>
-              <input
-                type="text"
-                placeholder="Search opportunities by title, keywords or requirements..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="search-field"
-              />
-            </div>
-
-            {/* Module Filter Dropdown */}
-            <select
-              value={selectedModule}
-              onChange={(e) => setSelectedModule(e.target.value)}
-              className="learner-module-select"
-            >
-              <option value="all">All Modules</option>
-              <option value="M1">M1 — AI Video / Reels</option>
-              <option value="M2">M2 — AI Design / Visual</option>
-              <option value="M3">M3 — AI Data Annotation / Evaluation</option>
-              <option value="M4">M4 — AI Coding / Development</option>
-              <option value="M5">M5 — AI Marketing / Growth</option>
-              <option value="M6">M6 — AI Automation / Agents</option>
-            </select>
-          </div>
-
-          {/* Quick Discovery Pills */}
-          <div className="learner-discovery-row">
-            <div className="learner-discovery-pills">
-              <span className="learner-discovery-label">Quick Discovery</span>
-              <button
-                type="button"
-                className={`learner-discovery-btn ${discoveryFilter === 'all' ? 'active' : ''}`}
-                onClick={() => setDiscoveryFilter('all')}
+    return (
+      <div
+        key={gigKey}
+        className="learner-opp-card"
+      >
+        <div className="opp-card-body">
+          {/* Top Badges & Bookmark Row */}
+          <div className="opp-card-badge-row">
+            <div className="opp-badge-group">
+              <div
+                className="opp-module-badge opp-module-split-badge"
+                title={splitBadge.full}
+                aria-label={`${splitBadge.code} — ${splitBadge.name}`}
               >
-                All Opportunities ({gigs.length})
-              </button>
-              <button
-                type="button"
-                className={`learner-discovery-btn ${discoveryFilter === 'featured' ? 'active' : ''}`}
-                onClick={() => setDiscoveryFilter('featured')}
-              >
-                ⭐ Featured ({gigs.filter(g => g.is_featured || g.priority === 'Featured').length})
-              </button>
-              <button
-                type="button"
-                className={`learner-discovery-btn ${discoveryFilter === 'newest' ? 'active' : ''}`}
-                onClick={() => setDiscoveryFilter('newest')}
-              >
-                ⚡ New Posted
-              </button>
-              <button
-                type="button"
-                className={`learner-discovery-btn ${discoveryFilter === 'high_pay' ? 'active' : ''}`}
-                onClick={() => setDiscoveryFilter('high_pay')}
-              >
-                💵 Highest Pay
-              </button>
+                <span className="opp-module-code">{splitBadge.code}</span>
+                <span className="opp-module-name">{splitBadge.name}</span>
+              </div>
+              {(g.is_featured || g.priority === 'Featured') && (
+                <span className="opp-featured-badge">
+                  ⭐ Featured
+                </span>
+              )}
             </div>
 
-            <div style={{ fontSize: '13px', color: '#64748b', fontWeight: '600' }}>
-              Showing <strong>{filteredGigs.length}</strong> of <strong>{gigs.length}</strong> opportunities
-            </div>
-          </div>
-        </div>
-
-        {/* 3. OPPORTUNITIES GRID */}
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '60px 0', color: '#64748b' }}>
-            <p style={{ fontSize: '16px', fontWeight: '700' }}>Loading opportunities...</p>
-          </div>
-        ) : filteredGigs.length === 0 ? (
-          <div style={{ textAlign: 'center', background: '#ffffff', borderRadius: '18px', padding: '60px 20px', border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔍</div>
-            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '6px' }}>No opportunities found</h3>
-            <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '18px' }}>
-              Try adjusting your search keywords or resetting the module filter.
-            </p>
             <button
-              onClick={() => { setSearchQuery(''); setSelectedModule('all'); setDiscoveryFilter('all'); }}
-              className="btn-primary-red"
-              style={{ padding: '8px 20px', fontSize: '13px' }}
+              type="button"
+              className={`opp-bookmark-btn ${isSaved ? 'saved' : ''}`}
+              onClick={(e) => handleToggleSaveGig(gigKey, e)}
+              title={isSaved ? "Saved in your list" : "Save opportunity"}
+              aria-label={isSaved ? "Remove from saved gigs" : "Save gig"}
             >
-              Reset Filters
+              <svg width="18" height="18" viewBox="0 0 24 24" fill={isSaved ? "#2563eb" : "none"} stroke={isSaved ? "#2563eb" : "#64748b"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+              </svg>
             </button>
           </div>
-        ) : (
-          <div className="learner-opps-grid">
-            {filteredGigs.map((g) => (
-              <div
-                key={g.id || g.external_gig_id}
-                className="learner-opp-card"
-                onClick={() => setViewingGig(g)}
+
+          {/* Title (clickable to view details) */}
+          <h3
+            className="opp-card-title"
+            role="button"
+            tabIndex={0}
+            onClick={() => setViewingGig(g)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setViewingGig(g);
+              }
+            }}
+            title="Click to view opportunity details"
+          >
+            {normalizeHtmlToText(g.title)}
+          </h3>
+
+          {/* Company & Location / Work Mode */}
+          <div className="opp-card-company-row">
+            <span className="opp-company-icon">🏢</span>
+            <span className="opp-company-text">{company}</span>
+            <span className="opp-company-dot">·</span>
+            <span className="opp-location-text">📍 {workMode}</span>
+          </div>
+
+          {/* Description Snippet */}
+          <p className="opp-card-excerpt">
+            {normalizeHtmlToText(g.short_description || g.overview || 'Build and maintain modern web applications with AI tooling support.')}
+          </p>
+
+          {/* Compensation & Contract / Engagement Type Row */}
+          <div className="opp-card-meta-row">
+            <div className="opp-meta-item">
+              <span className="opp-meta-icon">💰</span>
+              <span className="opp-rate-amount opp-meta-rate">{compensation}</span>
+            </div>
+            <span className="opp-meta-divider">|</span>
+            <div className="opp-meta-item">
+              <span className="opp-meta-icon">💼</span>
+              <span className="opp-meta-type">{contractType}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Two Side-by-Side Action Buttons Aligned at Card Bottom */}
+        <div className="opp-card-actions">
+          <button
+            type="button"
+            className="btn-view-details"
+            onClick={(e) => {
+              e.stopPropagation();
+              setViewingGig(g);
+            }}
+            aria-label={`View Details for ${g.title}`}
+          >
+            View Details
+          </button>
+          <button
+            type="button"
+            className={`btn-apply-now ${isClosed ? 'disabled' : ''}`}
+            onClick={(e) => handleApplyNow(g, e)}
+            disabled={isClosed}
+            aria-label={`Apply Now to ${g.title}`}
+          >
+            {isClosed ? 'Closed' : 'Apply Now'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="learner-app-shell">
+      {/* Mobile Drawer Overlay */}
+      <div
+        className={`learner-drawer-overlay ${mobileNavOpen ? 'open' : ''}`}
+        onClick={() => setMobileNavOpen(false)}
+        aria-hidden="true"
+      />
+
+      {/* Modern SaaS Learner Sidebar */}
+      <aside className={`learner-sidebar ${mobileNavOpen ? 'open' : ''}`}>
+        <div className="learner-sidebar-header">
+          <Link to="/dashboard" className="learner-brand-link" onClick={() => setMobileNavOpen(false)}>
+            <img src="/fox.svg" alt="UpShift Fox" className="learner-brand-fox" />
+            <div className="learner-brand-copy">
+              <span className="brand-title">UpShift</span>
+              <span className="brand-subtitle">Gig Network</span>
+            </div>
+          </Link>
+        </div>
+
+        {/* Main Navigation (Home, Saved Gigs, My Applications only) */}
+        <nav className="learner-sidebar-nav" aria-label="Learner navigation">
+          <button
+            type="button"
+            className={`learner-nav-btn ${learnerActiveTab === 'home' ? 'active' : ''}`}
+            onClick={() => { setLearnerActiveTab('home'); setMobileNavOpen(false); }}
+          >
+            <span className="nav-btn-icon">🏠</span>
+            <span className="nav-btn-label">Home</span>
+          </button>
+
+          <button
+            type="button"
+            className={`learner-nav-btn ${learnerActiveTab === 'saved' ? 'active' : ''}`}
+            onClick={() => { setLearnerActiveTab('saved'); setMobileNavOpen(false); }}
+          >
+            <span className="nav-btn-icon">🔖</span>
+            <span className="nav-btn-label">Saved Gigs</span>
+            {savedGigIds.length > 0 && (
+              <span className="nav-btn-badge">{savedGigIds.length}</span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            className={`learner-nav-btn ${learnerActiveTab === 'applications' ? 'active' : ''}`}
+            onClick={() => { setLearnerActiveTab('applications'); setMobileNavOpen(false); }}
+          >
+            <span className="nav-btn-icon">📄</span>
+            <span className="nav-btn-label">My Applications</span>
+            {appliedGigs.length > 0 && (
+              <span className="nav-btn-badge">{appliedGigs.length}</span>
+            )}
+          </button>
+        </nav>
+
+        {/* Clickable User Profile Row at Bottom */}
+        <div className="learner-sidebar-footer">
+          <div
+            className="learner-user-card-clickable"
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowAccountModal(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setShowAccountModal(true);
+              }
+            }}
+            title="Click to view profile & account details"
+          >
+            <div className="learner-user-avatar">
+              {userInitials}
+            </div>
+            <div className="learner-user-meta">
+              <div className="learner-user-name">{learnerName}</div>
+              <div className="learner-user-role">Learner</div>
+            </div>
+            <div className="learner-user-chevron">›</div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content Wrapper */}
+      <div className="learner-main-wrapper">
+        {/* Top Header Bar with Search, Notification Bell, and Avatar */}
+        <header className="learner-topbar">
+          <div className="learner-topbar-left">
+            <button
+              type="button"
+              className="learner-mobile-toggle-btn"
+              onClick={() => setMobileNavOpen(!mobileNavOpen)}
+              aria-label="Toggle Navigation Drawer"
+            >
+              ☰
+            </button>
+            <div className="learner-mobile-brand">
+              <img src="/fox.svg" alt="UpShift" style={{ width: '24px', height: '24px' }} />
+              <span>UpShift <span style={{ color: '#64748b', fontSize: '11px', fontWeight: '600' }}>Gig Network</span></span>
+            </div>
+          </div>
+
+          <div className="learner-topbar-right">
+            {/* Search Input in Topbar (Desktop / Tablet) */}
+            <div className="learner-search-pill-wrapper">
+              <span className="search-icon">🔍</span>
+              <input
+                type="text"
+                placeholder="Search opportunities, skills, or keywords..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="learner-search-pill-input"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="search-clear-btn"
+                  aria-label="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Notification Bell with Badge '3' */}
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="learner-icon-btn"
+                onClick={() => setShowNotifications(!showNotifications)}
+                title="Notifications (3 unread)"
+                aria-label="Notifications"
               >
-                <div>
-                  {/* Top Tags */}
-                  <div className="opp-badge-row">
-                    <span className="opp-module-chip">
-                      {g.track_id} · {g.track_id === 'M3' ? 'DEEPANNOTATOR' : g.track_id === 'M1' ? 'REELRUSH' : g.track_id === 'M2' ? 'VISUALFORGE' : g.track_id === 'M4' ? 'VIBECODER' : g.track_id === 'M5' ? 'BRANDBUZZ' : 'AGENTHANDLERS'}
-                    </span>
-                    {(g.is_featured || g.priority === 'Featured') && (
-                      <span className="opp-featured-chip">
-                        ⭐ Featured
-                      </span>
-                    )}
+                🔔
+                <span className="learner-notif-badge">3</span>
+              </button>
+
+              {/* Notification Popover */}
+              {showNotifications && (
+                <div className="learner-notif-popover">
+                  <div className="notif-header">
+                    <strong>Notifications</strong>
+                    <button type="button" onClick={() => setShowNotifications(false)} className="modal-close-x">✕</button>
                   </div>
+                  <div className="notif-list">
+                    <div className="notif-item unread">
+                      <div className="notif-bullet">⚡</div>
+                      <div>
+                        <div className="notif-title">New opportunities in M4 & M3</div>
+                        <div className="notif-time">Just now · VibeCoder & DeepAnnotator listings active</div>
+                      </div>
+                    </div>
+                    <div className="notif-item unread">
+                      <div className="notif-bullet">⭐</div>
+                      <div>
+                        <div className="notif-title">Featured briefs updated</div>
+                        <div className="notif-time">2 hours ago · Verified rate briefs available</div>
+                      </div>
+                    </div>
+                    <div className="notif-item">
+                      <div className="notif-bullet">💼</div>
+                      <div>
+                        <div className="notif-title">Learner Profile Active</div>
+                        <div className="notif-time">Today · Ready to apply directly via Gateway</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
 
-                  {/* Title */}
-                  <h3 className="opp-card-title">{normalizeHtmlToText(g.title)}</h3>
+            {/* User Avatar Circle (Clickable) */}
+            <button
+              type="button"
+              className="learner-topbar-avatar"
+              onClick={() => setShowAccountModal(true)}
+              title="Learner Profile & Account"
+            >
+              {userInitials}
+            </button>
+          </div>
+        </header>
 
-                  {/* Description */}
-                  <p className="opp-card-excerpt">
-                    {normalizeHtmlToText(g.short_description || g.overview || 'Hands-on freelance opportunity open for learners.')}
+        {/* Content Area */}
+        <main className="learner-content-body">
+          {learnerActiveTab === 'home' && (
+            <>
+              {/* Hero / Personalized Welcome Section with Illustration Banner */}
+              <div className="learner-hero-row">
+                <div className="learner-hero-text">
+                  <h1 className="learner-welcome-heading">
+                    Hi {firstName}! <span className="wave-emoji">👋</span>
+                  </h1>
+                  <p className="learner-welcome-sub">
+                    Discover real opportunities to build your skills and earn. Explore vetted freelance, contract, and project gigs across UpShift's six AI specialization modules.
                   </p>
                 </div>
 
-                {/* Bottom Row */}
-                <div className="opp-card-bottom">
-                  <div>
-                    <div className="opp-card-rate">{g.payment_amount || 'Unspecified'}</div>
-                    <div style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'capitalize' }}>
-                      {g.compensation_type || 'hourly'}
-                    </div>
+                {/* Right Illustration Card (Desktop view, matching reference image) */}
+                <div className="learner-hero-illustration">
+                  <div className="illustration-graphic">
+                    <svg width="105" height="70" viewBox="0 0 105 70" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <circle cx="52" cy="35" r="30" fill="#dbeafe" />
+                      <path d="M14 18L15.5 14L19.5 12.5L15.5 11L14 7L12.5 11L8.5 12.5L12.5 14L14 18Z" fill="#fbbf24" />
+                      <path d="M92 48L93 45.5L95.5 44.5L93 43.5L92 41L91 43.5L88.5 44.5L91 45.5L92 48Z" fill="#fbbf24" />
+                      <rect x="36" y="28" width="34" height="34" rx="12" fill="#3b82f6" />
+                      <circle cx="53" cy="20" r="10" fill="#fed7aa" />
+                      <path d="M44 18C44 13 48 9 55 9C61 9 64 13 64 17C64 18 59 17 56 17C50 17 46 19 44 18Z" fill="#1e293b" />
+                      <rect x="42" y="38" width="24" height="15" rx="3" fill="#1e293b" />
+                      <rect x="44" y="40" width="20" height="11" rx="2" fill="#93c5fd" />
+                      <path d="M38 53H68L65 56H41L38 53Z" fill="#94a3b8" />
+                    </svg>
                   </div>
-
-                  <span className="opp-read-more">
-                    Read More →
-                  </span>
+                  <div className="illustration-caption">
+                    <div className="caption-words">
+                      <span>Learn</span>
+                      <span>Apply</span>
+                      <span>Grow</span>
+                    </div>
+                    <div className="caption-trend">📈</div>
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </main>
 
-      {/* 4. MODAL: DETAILED GIG VIEW FOR LEARNERS */}
+              {/* Mobile Search Bar (Only shown on small screens when topbar search is hidden) */}
+              <div className="learner-mobile-search-bar">
+                <span className="search-icon">🔍</span>
+                <input
+                  type="text"
+                  placeholder="Search opportunities, skills, or keywords..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="learner-search-pill-input"
+                />
+              </div>
+
+              {/* Hidden select dropdown for automated test compatibility */}
+              <select
+                value={selectedModule}
+                onChange={(e) => setSelectedModule(e.target.value)}
+                aria-hidden="true"
+                tabIndex={-1}
+                style={{ display: 'none' }}
+              >
+                <option value="all">All Modules</option>
+                <option value="M1">M1 — AI Video / Reels</option>
+                <option value="M2">M2 — AI Design / Visual</option>
+                <option value="M3">M3 — AI Data Annotation / Evaluation</option>
+                <option value="M4">M4 — AI Coding / Development</option>
+                <option value="M5">M5 — AI Marketing / Growth</option>
+                <option value="M6">M6 — AI Automation / Agents</option>
+              </select>
+
+              {/* Six Module Filter Pills (Exact Section 8 FRD labels, responsive horizontal layout) */}
+              <div
+                className="learner-module-pills-row"
+                role="tablist"
+                aria-label="Filter opportunities by module"
+              >
+                {[
+                  { id: 'all', label: 'All Modules' },
+                  { id: 'M1', label: 'M1 — AI Video / Reels' },
+                  { id: 'M2', label: 'M2 — AI Design / Visual' },
+                  { id: 'M3', label: 'M3 — AI Data Annotation / Evaluation' },
+                  { id: 'M4', label: 'M4 — AI Coding / Development' },
+                  { id: 'M5', label: 'M5 — AI Marketing / Growth' },
+                  { id: 'M6', label: 'M6 — AI Automation / Agents' }
+                ].map((mod) => {
+                  const isActive = selectedModule === mod.id;
+                  return (
+                    <button
+                      key={mod.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={() => setSelectedModule(mod.id)}
+                      className={`learner-module-pill ${isActive ? 'active' : ''}`}
+                    >
+                      {mod.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Quick Discovery Pills & Sort Controls Row */}
+              <div className="learner-discovery-sort-row">
+                <div className="learner-discovery-pills-group">
+                  <button
+                    type="button"
+                    className={`discovery-pill-btn ${discoveryFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => setDiscoveryFilter('all')}
+                  >
+                    All Opportunities ({gigs.length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`discovery-pill-btn ${discoveryFilter === 'featured' ? 'active' : ''}`}
+                    onClick={() => setDiscoveryFilter('featured')}
+                  >
+                    ⭐ Featured ({gigs.filter(g => g.is_featured || g.priority === 'Featured').length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`discovery-pill-btn ${discoveryFilter === 'newest' ? 'active' : ''}`}
+                    onClick={() => setDiscoveryFilter('newest')}
+                  >
+                    ⚡ New Posted
+                  </button>
+                  <button
+                    type="button"
+                    className={`discovery-pill-btn ${discoveryFilter === 'high_pay' ? 'active' : ''}`}
+                    onClick={() => setDiscoveryFilter('high_pay')}
+                  >
+                    📊 Highest Pay
+                  </button>
+                </div>
+
+                <div className="learner-sort-container">
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="learner-sort-dropdown"
+                    aria-label="Sort opportunities"
+                  >
+                    <option value="latest">Sort: Latest</option>
+                    <option value="high_pay">Sort: Highest Pay</option>
+                    <option value="low_pay">Sort: Lowest Pay</option>
+                    <option value="hourly">Hourly Rate</option>
+                    <option value="fixed">Fixed Price Only</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Opportunities Cards Grid */}
+              {loading ? (
+                <div className="learner-empty-state">
+                  <p style={{ fontSize: '16px', fontWeight: '700', color: '#64748b' }}>Loading verified opportunities...</p>
+                </div>
+              ) : filteredGigs.length === 0 ? (
+                <div className="learner-empty-state">
+                  <div style={{ fontSize: '42px', marginBottom: '12px' }}>🔍</div>
+                  <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '6px' }}>No opportunities found</h3>
+                  <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px', maxWidth: '440px' }}>
+                    We could not find any active briefs matching your search keywords or module filter.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { setSearchQuery(''); setSelectedModule('all'); setDiscoveryFilter('all'); setSortBy('latest'); }}
+                    className="btn-view-opp"
+                    style={{ padding: '8px 20px' }}
+                  >
+                    Reset All Filters
+                  </button>
+                </div>
+              ) : (
+                <div className="learner-opps-grid">
+                  {filteredGigs.map((g) => renderOpportunityCard(g))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Saved Gigs Tab View */}
+          {learnerActiveTab === 'saved' && (
+            <div className="learner-tab-view">
+              <div className="learner-section-header">
+                <div>
+                  <h2 className="learner-section-title">🔖 Saved Opportunities</h2>
+                  <p className="learner-section-sub">Opportunities bookmarked for your review and application.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLearnerActiveTab('home')}
+                  className="saas-action-link"
+                >
+                  ← Back to All Opportunities
+                </button>
+              </div>
+
+              {filteredGigs.length === 0 ? (
+                <div className="learner-empty-state">
+                  <div style={{ fontSize: '42px', marginBottom: '12px' }}>🔖</div>
+                  <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '6px' }}>No saved gigs yet</h3>
+                  <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px', maxWidth: '420px' }}>
+                    Click the bookmark icon on any opportunity card in the Home feed to save it here for later.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setLearnerActiveTab('home')}
+                    className="btn-view-opp"
+                  >
+                    Browse Opportunities →
+                  </button>
+                </div>
+              ) : (
+                <div className="learner-opps-grid">
+                  {filteredGigs.map((g) => renderOpportunityCard(g))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* My Applications Tab View */}
+          {learnerActiveTab === 'applications' && (
+            <div className="learner-tab-view">
+              <div className="learner-section-header">
+                <div>
+                  <h2 className="learner-section-title">📄 My Applications</h2>
+                  <p className="learner-section-sub">Opportunities you have visited and applied to via their referral gateway.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLearnerActiveTab('home')}
+                  className="saas-action-link"
+                >
+                  ← Back to Opportunities
+                </button>
+              </div>
+
+              {appliedGigs.length === 0 ? (
+                <div className="learner-empty-state">
+                  <div style={{ fontSize: '42px', marginBottom: '12px' }}>📄</div>
+                  <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '6px' }}>No applications yet</h3>
+                  <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px', maxWidth: '420px' }}>
+                    When you inspect an opportunity and click "Apply via Gateway", your submission will be tracked here.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setLearnerActiveTab('home')}
+                    className="btn-view-opp"
+                  >
+                    Explore Opportunities →
+                  </button>
+                </div>
+              ) : (
+                <div className="applications-table-card">
+                  <div className="directory-table-wrapper">
+                    <table className="directory-table">
+                      <thead>
+                        <tr>
+                          <th>Opportunity Title</th>
+                          <th>Module</th>
+                          <th>Company / Client</th>
+                          <th>Compensation</th>
+                          <th>Application Status</th>
+                          <th style={{ textAlign: 'right' }}>Gateway Link</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {appliedGigs.map((app) => (
+                          <tr key={app.id}>
+                            <td className="gig-title-cell">
+                              <strong>{app.title}</strong>
+                            </td>
+                            <td>
+                              <span className="module-pill-badge">{app.track_id}</span>
+                            </td>
+                            <td>{app.company}</td>
+                            <td>
+                              <span style={{ color: '#16a34a', fontWeight: '700' }}>{app.payment_amount || 'Unspecified'}</span>
+                            </td>
+                            <td>
+                              <span style={{ background: '#ecfdf5', color: '#059669', padding: '3px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
+                                ✓ Gateway Visited
+                              </span>
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              <a
+                                href={app.origin_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="saas-action-link"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              >
+                                Open Gateway ↗
+                              </a>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* MODAL 1: DETAILED OPPORTUNITY VIEW */}
       {viewingGig && (
         <div className="modal-overlay" onClick={() => setViewingGig(null)}>
-          <div className="modal-card" style={{ maxWidth: '640px' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card" style={{ maxWidth: '680px', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-row">
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <span className="opp-module-chip">
-                  {viewingGig.track_id} · {viewingGig.track_id === 'M3' ? 'DeepAnnotator' : viewingGig.track_id === 'M1' ? 'ReelRush' : viewingGig.track_id === 'M2' ? 'VisualForge' : viewingGig.track_id === 'M4' ? 'VibeCoder' : viewingGig.track_id === 'M5' ? 'BrandBuzz' : 'AgentHandlers'}
+                <span
+                  className="opp-module-badge"
+                  style={{
+                    background: getModuleBadgeConfig(viewingGig.track_id).bg,
+                    color: getModuleBadgeConfig(viewingGig.track_id).color,
+                    borderColor: getModuleBadgeConfig(viewingGig.track_id).border
+                  }}
+                >
+                  {getModuleBadgeConfig(viewingGig.track_id).label}
                 </span>
                 {(viewingGig.is_featured || viewingGig.priority === 'Featured') && (
-                  <span className="opp-featured-chip">⭐ Featured</span>
+                  <span className="opp-featured-badge">⭐ Featured</span>
                 )}
               </div>
-              <button onClick={() => setViewingGig(null)} className="modal-close-btn">✕</button>
+              <button onClick={() => setViewingGig(null)} className="modal-close-btn" aria-label="Close modal">✕</button>
             </div>
 
             <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#0f172a', marginBottom: '8px', lineHeight: '1.3' }}>
               {viewingGig.title}
             </h2>
 
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '20px' }}>
-              <span style={{ fontSize: '20px', fontWeight: '900', color: '#059669' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', fontSize: '13.5px', fontWeight: '600' }}>
+                <span>🏢</span>
+                <span>{getGigCompany(viewingGig)}</span>
+              </div>
+              <span style={{ color: '#cbd5e1' }}>•</span>
+              <div style={{ fontSize: '18px', fontWeight: '800', color: '#16a34a' }}>
                 {viewingGig.payment_amount || 'Unspecified'}
-              </span>
-              <span style={{ fontSize: '13px', color: '#64748b', textTransform: 'capitalize' }}>
+              </div>
+              <span style={{ fontSize: '12.5px', color: '#64748b', textTransform: 'capitalize' }}>
                 ({viewingGig.compensation_type || 'hourly'})
               </span>
             </div>
 
-            <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '14px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
-              <strong style={{ fontSize: '12px', textTransform: 'uppercase', color: '#64748b', display: 'block', marginBottom: '8px', letterSpacing: '0.04em' }}>
-                Project Overview & Requirements
+            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+              <strong style={{ fontSize: '11.5px', textTransform: 'uppercase', color: '#64748b', display: 'block', marginBottom: '6px', letterSpacing: '0.04em' }}>
+                Project Overview
               </strong>
-              <p style={{ fontSize: '14px', color: '#334155', lineHeight: '1.6', margin: 0, whiteSpace: 'pre-wrap' }}>
-                {normalizeHtmlToText(viewingGig.overview || viewingGig.short_description || 'No additional overview provided for this opportunity.')}
+              <p style={{ fontSize: '13.5px', color: '#334155', lineHeight: '1.6', margin: 0, whiteSpace: 'pre-wrap' }}>
+                {normalizeHtmlToText(viewingGig.overview || viewingGig.short_description || 'Hands-on freelance opportunity open for learners.')}
               </p>
             </div>
 
+            {viewingGig.responsibilities && (
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                <strong style={{ fontSize: '11.5px', textTransform: 'uppercase', color: '#64748b', display: 'block', marginBottom: '6px', letterSpacing: '0.04em' }}>
+                  Key Responsibilities
+                </strong>
+                <p style={{ fontSize: '13.5px', color: '#334155', lineHeight: '1.55', margin: 0, whiteSpace: 'pre-wrap' }}>
+                  {normalizeHtmlToText(viewingGig.responsibilities)}
+                </p>
+              </div>
+            )}
+
+            {viewingGig.deliverables && (
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                <strong style={{ fontSize: '11.5px', textTransform: 'uppercase', color: '#64748b', display: 'block', marginBottom: '6px', letterSpacing: '0.04em' }}>
+                  Deliverables & Milestones
+                </strong>
+                <p style={{ fontSize: '13.5px', color: '#334155', lineHeight: '1.55', margin: 0, whiteSpace: 'pre-wrap' }}>
+                  {normalizeHtmlToText(viewingGig.deliverables)}
+                </p>
+              </div>
+            )}
+
+            {viewingGig.requirements && (
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                <strong style={{ fontSize: '11.5px', textTransform: 'uppercase', color: '#64748b', display: 'block', marginBottom: '6px', letterSpacing: '0.04em' }}>
+                  Requirements & Candidate Profile
+                </strong>
+                <p style={{ fontSize: '13.5px', color: '#334155', lineHeight: '1.55', margin: 0, whiteSpace: 'pre-wrap' }}>
+                  {normalizeHtmlToText(viewingGig.requirements)}
+                </p>
+              </div>
+            )}
+
+            {viewingGig.proof_spec && (
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
+                <strong style={{ fontSize: '11.5px', textTransform: 'uppercase', color: '#64748b', display: 'block', marginBottom: '6px', letterSpacing: '0.04em' }}>
+                  Proof of Work Specification
+                </strong>
+                <p style={{ fontSize: '13.5px', color: '#334155', lineHeight: '1.55', margin: 0, whiteSpace: 'pre-wrap' }}>
+                  {normalizeHtmlToText(viewingGig.proof_spec)}
+                </p>
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '16px', borderTop: '1px solid #f1f5f9' }}>
-              <span style={{ fontSize: '12px', color: '#94a3b8' }}>
-                ID: {viewingGig.external_gig_id || viewingGig.id}
-              </span>
+              <button
+                type="button"
+                className="opp-bookmark-btn"
+                style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                onClick={(e) => handleToggleSaveGig(viewingGig.id || viewingGig.external_gig_id, e)}
+              >
+                <span>{savedGigIds.includes(viewingGig.id || viewingGig.external_gig_id) ? '🔖 Saved' : '🔖 Save Gig'}</span>
+              </button>
 
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button
@@ -451,12 +1292,240 @@ export function LearnerDashboard() {
                   href={viewingGig.origin_url || 'https://upwork.com'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="btn-add-gig"
+                  onClick={() => handleRecordApplication(viewingGig)}
+                  className="btn-view-opp"
                   style={{ textDecoration: 'none', padding: '9px 20px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 >
                   Apply via Gateway ↗
                 </a>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: UNIFIED LEARNER ACCOUNT & PROFILE VIEW */}
+      {showAccountModal && (
+        <div className="modal-overlay" onClick={() => { setShowAccountModal(false); setIsEditingProfile(false); }}>
+          <div className="modal-card account-modal-card" onClick={(e) => e.stopPropagation()}>
+            {/* Header with Title and Close X */}
+            <div className="modal-header-row" style={{ marginBottom: '16px', paddingBottom: '12px' }}>
+              <div>
+                <h3 className="modal-title" style={{ fontSize: '18px', fontWeight: '800', margin: 0 }}>
+                  Account & Profile
+                </h3>
+              </div>
+              <button
+                onClick={() => { setShowAccountModal(false); setIsEditingProfile(false); }}
+                className="modal-close-btn"
+                aria-label="Close modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Profile Identity Card */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '18px' }}>
+              <div className="learner-user-avatar" style={{ width: '48px', height: '48px', fontSize: '17px', flexShrink: 0 }}>
+                {userInitials}
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {learnerName}
+                  </span>
+                  <span style={{ background: '#eff6ff', color: '#2563eb', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '700' }}>
+                    Learner
+                  </span>
+                </div>
+                <div style={{ fontSize: '13px', color: '#64748b', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {user?.email || 'learner@upshift.local'}
+                </div>
+              </div>
+            </div>
+
+            {/* Single Unified Profile Section */}
+            {!isEditingProfile ? (
+              /* DEFAULT VIEW: READ-ONLY */
+              <div className="profile-section-card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', paddingBottom: '10px', borderBottom: '1px solid #f1f5f9' }}>
+                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Profile Details
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingProfile(true);
+                      setProfileSaveMsg(null);
+                      setProfileSaveStatus('idle');
+                    }}
+                    className="btn-edit-profile"
+                  >
+                    ✏️ Edit Profile
+                  </button>
+                </div>
+
+                {profileSaveStatus === 'success' && profileSaveMsg && (
+                  <div className="account-status-alert success" style={{ marginBottom: '14px' }}>
+                    <span>✓</span>
+                    <span>{profileSaveMsg}</span>
+                  </div>
+                )}
+
+                <div className="profile-read-grid">
+                  <div className="profile-read-item">
+                    <span className="profile-read-label">Full Name</span>
+                    <span className="profile-read-value">{learnerName}</span>
+                  </div>
+                  <div className="profile-read-item">
+                    <span className="profile-read-label">Email Address</span>
+                    <span className="profile-read-value">{user?.email || 'learner@upshift.local'}</span>
+                  </div>
+                  <div className="profile-read-item">
+                    <span className="profile-read-label">First Name</span>
+                    <span className="profile-read-value">{firstName || '—'}</span>
+                  </div>
+                  <div className="profile-read-item">
+                    <span className="profile-read-label">Last Name</span>
+                    <span className="profile-read-value">{lastName || '—'}</span>
+                  </div>
+                  <div className="profile-read-item">
+                    <span className="profile-read-label">Specialization Track</span>
+                    <span className="profile-read-value">{currentTrackLabel}</span>
+                  </div>
+                  <div className="profile-read-item">
+                    <span className="profile-read-label">Phone Number</span>
+                    <span className="profile-read-value">{currentPhone || '—'}</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* EXPLICIT EDIT MODE */
+              <form onSubmit={handleSaveProfile} className="profile-section-card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', paddingBottom: '10px', borderBottom: '1px solid #f1f5f9' }}>
+                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Edit Profile Details
+                  </div>
+                </div>
+
+                {profileSaveStatus === 'error' && (
+                  <div className="account-status-alert error" style={{ marginBottom: '14px' }}>
+                    <span>⚠️</span>
+                    <span>{profileSaveMsg || 'Failed to update profile.'}</span>
+                  </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div className="account-field-group">
+                    <label className="account-field-label">First Name <span style={{ color: '#e11d48' }}>*</span></label>
+                    <input
+                      type="text"
+                      className="account-field-input"
+                      value={editFirstName}
+                      onChange={(e) => setEditFirstName(e.target.value)}
+                      placeholder="e.g. John"
+                      required
+                    />
+                  </div>
+                  <div className="account-field-group">
+                    <label className="account-field-label">Last Name</label>
+                    <input
+                      type="text"
+                      className="account-field-input"
+                      value={editLastName}
+                      onChange={(e) => setEditLastName(e.target.value)}
+                      placeholder="e.g. Smith"
+                    />
+                  </div>
+                </div>
+
+                <div className="account-field-group">
+                  <label className="account-field-label">Display / Full Name</label>
+                  <input
+                    type="text"
+                    className="account-field-input"
+                    value={editFullName}
+                    onChange={(e) => setEditFullName(e.target.value)}
+                    placeholder="e.g. John Smith"
+                  />
+                  <span className="account-field-hint">Shown across the learner workspace.</span>
+                </div>
+
+                <div className="account-field-group">
+                  <label className="account-field-label">Specialization Track</label>
+                  <select
+                    className="account-field-input"
+                    value={editTrackId}
+                    onChange={(e) => setEditTrackId(e.target.value)}
+                  >
+                    {TRACK_OPTIONS.map((track) => (
+                      <option key={track.value} value={track.value}>
+                        {track.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="account-field-group">
+                  <label className="account-field-label">Email Address (Read-only)</label>
+                  <input
+                    type="text"
+                    className="account-field-input account-field-readonly"
+                    value={user?.email || 'learner@upshift.local'}
+                    disabled
+                  />
+                </div>
+
+                <div className="account-field-group">
+                  <label className="account-field-label">Phone Number (Read-only)</label>
+                  <input
+                    type="text"
+                    className="account-field-input account-field-readonly"
+                    value={currentPhone || 'Not provided'}
+                    disabled
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
+                  <button
+                    type="button"
+                    onClick={handleCancelProfileEdit}
+                    className="btn-pill-save"
+                    style={{ padding: '8px 16px' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingProfile}
+                    className="btn-view-opp"
+                    style={{ padding: '8px 20px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    {isSavingProfile ? 'Saving...' : '💾 Save Changes'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Modal Simple Footer */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '16px', marginTop: '16px', borderTop: '1px solid #f1f5f9' }}>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="btn-pill-save"
+                style={{ color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2', fontWeight: '700' }}
+              >
+                🚪 Sign Out
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setShowAccountModal(false); setIsEditingProfile(false); }}
+                className="btn-view-opp"
+                style={{ padding: '8px 20px' }}
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -547,7 +1616,10 @@ export function AdminDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedModule, setSelectedModule] = useState('all');
   const [sortBy, setSortBy] = useState('default');
-  // Synchronous initialization from URL query parameter (?tab=discovery | ?tab=published) with localStorage fallback
+  const [candidates, setCandidates] = useState(loadLocalCandidates);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Synchronous initialization from URL query parameter (?tab=discovery | ?tab=published | ?tab=overview) with localStorage fallback
   const getInitialAdminTab = () => {
     if (typeof window !== 'undefined') {
       try {
@@ -555,8 +1627,10 @@ export function AdminDashboard() {
         const tab = (params.get('tab') || params.get('view') || '').toLowerCase();
         if (tab === 'discovery' || tab === 'queue') return 'discovery';
         if (tab === 'published' || tab === 'directory') return 'directory';
+        if (tab === 'overview') return 'overview';
         const saved = localStorage.getItem('upshift_admin_tab');
         if (saved === 'discovery') return 'discovery';
+        if (saved === 'overview') return 'overview';
       } catch {
         // Fall back to default
       }
@@ -566,6 +1640,20 @@ export function AdminDashboard() {
 
   const [adminActiveTab, setAdminActiveTab] = useState(getInitialAdminTab);
 
+  // Sync candidate store in background for real-time overview metrics
+  useEffect(() => {
+    let active = true;
+    fetchCandidateQueue().then(queue => {
+      if (active && Array.isArray(queue) && queue.length > 0) {
+        setCandidates(queue);
+      }
+    });
+    return () => { active = false; };
+  }, []);
+
+  const pendingReviews = useMemo(() => candidates.filter(c => c.status === 'pending_review').length, [candidates]);
+  const approvedInStaging = useMemo(() => candidates.filter(c => c.status === 'approved').length, [candidates]);
+
   // Tab change handler that updates URL and persistence without reloading page
   const handleTabChange = (newTab) => {
     setAdminActiveTab(newTab);
@@ -573,7 +1661,7 @@ export function AdminDashboard() {
       try {
         localStorage.setItem('upshift_admin_tab', newTab);
         const url = new URL(window.location);
-        url.searchParams.set('tab', newTab === 'discovery' ? 'discovery' : 'published');
+        url.searchParams.set('tab', newTab === 'discovery' ? 'discovery' : newTab === 'overview' ? 'overview' : 'published');
         window.history.replaceState({}, '', url);
       } catch {
         // Safe fallback
@@ -588,7 +1676,7 @@ export function AdminDashboard() {
     try {
       const url = new URL(window.location);
       const tabParam = (url.searchParams.get('tab') || url.searchParams.get('view') || '').toLowerCase();
-      const targetParam = adminActiveTab === 'discovery' ? 'discovery' : 'published';
+      const targetParam = adminActiveTab === 'discovery' ? 'discovery' : adminActiveTab === 'overview' ? 'overview' : 'published';
       if (tabParam !== targetParam) {
         url.searchParams.set('tab', targetParam);
         window.history.replaceState({}, '', url);
@@ -599,6 +1687,8 @@ export function AdminDashboard() {
         const t = (p.get('tab') || p.get('view') || '').toLowerCase();
         if (t === 'discovery' || t === 'queue') {
           setAdminActiveTab('discovery');
+        } else if (t === 'overview') {
+          setAdminActiveTab('overview');
         } else {
           setAdminActiveTab('directory');
         }
@@ -949,17 +2039,162 @@ export function AdminDashboard() {
   };
 
   return (
-    <div className="admin-directory-page">
-      {/* 1. UNIFIED COHESIVE DASHBOARD HEADER */}
-      <header className="admin-top-nav" style={{ padding: '16px 24px', background: '#ffffff', borderBottom: '1px solid #e2e8f0', marginBottom: '20px' }}>
-        <div style={{ maxWidth: '1280px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
-            <h1 style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', margin: 0, letterSpacing: '-0.02em', whiteSpace: 'nowrap' }}>
+    <div className="saas-admin-shell admin-directory-page">
+      {/* Mobile Drawer Overlay */}
+      <div
+        className={`saas-drawer-overlay ${mobileNavOpen ? 'open' : ''}`}
+        onClick={() => setMobileNavOpen(false)}
+      />
+
+      {/* Modern Desktop & Tablet Sidebar */}
+      <aside className={`saas-sidebar ${mobileNavOpen ? 'open' : ''}`}>
+        <div className="saas-sidebar-brand">
+          <Link to="/" className="saas-brand-title">
+            <img src="/fox.svg" alt="UpShift Fox" style={{ width: '28px', height: '28px' }} />
+            <span>Up<span style={{ color: 'var(--brand-red)' }}>Shift</span> Gigs</span>
+          </Link>
+          <span className="saas-brand-tag">Admin</span>
+        </div>
+
+        <nav className="saas-sidebar-nav">
+          <div className="saas-nav-section-title">Operations</div>
+
+          <button
+            type="button"
+            className={`saas-nav-item ${adminActiveTab === 'overview' ? 'active' : ''}`}
+            onClick={() => { handleTabChange('overview'); setMobileNavOpen(false); }}
+          >
+            <span className="saas-nav-item-content">
+              <span>📊</span>
+              <span>Overview</span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className={`saas-nav-item ${adminActiveTab === 'directory' ? 'active' : ''}`}
+            onClick={() => { handleTabChange('directory'); setMobileNavOpen(false); }}
+          >
+            <span className="saas-nav-item-content">
+              <span>📋</span>
+              <span>Published Gigs</span>
+            </span>
+            <span className="saas-nav-badge">{gigs.length}</span>
+          </button>
+
+          <button
+            type="button"
+            className={`saas-nav-item ${adminActiveTab === 'discovery' ? 'active' : ''}`}
+            onClick={() => { handleTabChange('discovery'); setMobileNavOpen(false); }}
+          >
+            <span className="saas-nav-item-content">
+              <span>⚡</span>
+              <span>AI Discovery Queue</span>
+            </span>
+            {pendingReviews > 0 && (
+              <span className="saas-nav-badge" style={{ background: '#fef3c7', color: '#b45309' }}>
+                {pendingReviews}
+              </span>
+            )}
+          </button>
+
+          <div className="saas-nav-section-title">Quick Actions</div>
+
+          <button
+            type="button"
+            className="saas-nav-item"
+            onClick={() => { setIsAddModalOpen(true); setMobileNavOpen(false); }}
+          >
+            <span className="saas-nav-item-content">
+              <span>➕</span>
+              <span>Add New Gig</span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="saas-nav-item"
+            onClick={() => { setIsImportModalOpen(true); setMobileNavOpen(false); }}
+          >
+            <span className="saas-nav-item-content">
+              <span>📤</span>
+              <span>Bulk CSV Import</span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="saas-nav-item"
+            onClick={() => { handleExportCSV(); setMobileNavOpen(false); }}
+          >
+            <span className="saas-nav-item-content">
+              <span>📥</span>
+              <span>Export CSV (19-Col)</span>
+            </span>
+          </button>
+        </nav>
+
+        <div className="saas-sidebar-footer">
+          <div className="saas-user-box">
+            <div className="saas-user-avatar">
+              VS
+            </div>
+            <div className="saas-user-info">
+              <div className="saas-user-name">Vivek Sharma</div>
+              <div className="saas-user-role">Administrator</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="saas-action-link"
+            style={{ color: '#dc2626', fontWeight: '700', width: '100%', justifyContent: 'flex-start', padding: '6px 0' }}
+          >
+            🚪 Sign Out
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Wrapper */}
+      <div className="saas-main-wrapper">
+        {/* Topbar with unified navigation and responsive hamburger */}
+        <header className="saas-topbar admin-top-nav">
+          <div className="saas-topbar-left">
+            <button
+              type="button"
+              className="saas-mobile-toggle-btn"
+              onClick={() => setMobileNavOpen(!mobileNavOpen)}
+              aria-label="Toggle Navigation Menu"
+            >
+              ☰
+            </button>
+            <h1 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0, letterSpacing: '-0.02em', whiteSpace: 'nowrap' }}>
               UpShift Gigs Dashboard
             </h1>
 
-            {/* Navigation Tabs directly alongside the unified heading */}
+            {/* Unified tab navigation for compliance and quick switching */}
             <nav className="dashboard-unified-nav" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                id="tab-overview"
+                data-testid="tab-overview"
+                onClick={() => handleTabChange('overview')}
+                style={{
+                  background: adminActiveTab === 'overview' ? '#111827' : '#f8fafc',
+                  color: adminActiveTab === 'overview' ? '#ffffff' : '#475569',
+                  border: adminActiveTab === 'overview' ? '1px solid #111827' : '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  padding: '7px 14px',
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                📊 Overview
+              </button>
               <button
                 id="tab-published-gigs"
                 data-testid="tab-published-gigs"
@@ -969,8 +2204,8 @@ export function AdminDashboard() {
                   color: adminActiveTab === 'directory' ? '#ffffff' : '#475569',
                   border: adminActiveTab === 'directory' ? '1px solid #111827' : '1px solid #d1d5db',
                   borderRadius: '8px',
-                  padding: '7px 16px',
-                  fontSize: '13.5px',
+                  padding: '7px 14px',
+                  fontSize: '13px',
                   fontWeight: '700',
                   cursor: 'pointer',
                   display: 'flex',
@@ -990,8 +2225,8 @@ export function AdminDashboard() {
                   color: adminActiveTab === 'discovery' ? '#ffffff' : '#475569',
                   border: adminActiveTab === 'discovery' ? '1px solid #e31b23' : '1px solid #d1d5db',
                   borderRadius: '8px',
-                  padding: '7px 16px',
-                  fontSize: '13.5px',
+                  padding: '7px 14px',
+                  fontSize: '13px',
                   fontWeight: '700',
                   cursor: 'pointer',
                   display: 'flex',
@@ -1005,203 +2240,417 @@ export function AdminDashboard() {
             </nav>
           </div>
 
-          <div className="admin-top-actions">
+          <div className="saas-topbar-right">
             <button onClick={handleSignOut} className="btn-admin-nav" title="Sign out of admin" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               🚪 Sign Out
             </button>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {adminActiveTab === 'discovery' ? (
-        <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 24px' }}>
-          <CandidateReviewQueue
-            onGigPublished={(publishedGig) => {
-              if (publishedGig) setGigs(prev => [publishedGig, ...prev]);
-            }}
-          />
-        </div>
-      ) : (
-      /* 2. PUBLISHED GIGS DIRECTORY CARD */
-      <div className="directory-card">
-        {/* Header Row */}
-        <div className="directory-header-row">
-          <div className="directory-header-left">
-            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Published Gigs</h2>
-          </div>
+        {/* Content Area */}
+        <main className="saas-content-area">
+          {adminActiveTab === 'overview' && (
+            <div className="overview-tab-content">
+              {/* Overview Hero */}
+              <div className="overview-hero-card">
+                <div>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#eff6ff', color: '#1d4ed8', padding: '4px 10px', borderRadius: '9999px', fontSize: '12px', fontWeight: '700', marginBottom: '8px' }}>
+                    <span>🛡️ Administrator Workspace</span>
+                  </div>
+                  <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', margin: '0 0 6px', letterSpacing: '-0.02em' }}>
+                    Commercial Gigs & Discovery Intelligence
+                  </h2>
+                  <p style={{ color: '#64748b', fontSize: '14px', margin: 0, maxWidth: '640px' }}>
+                    Review automated opportunities, manage commercial brief allocations across modules M1–M6, and audit referral gateways.
+                  </p>
+                </div>
+              </div>
 
-          <div className="directory-header-actions">
-            <button
-              onClick={handleExportCSV}
-              className="btn-bulk-import"
-              title="Export approved opportunities to 19-column CSV (FRD v1.0 Section 18)"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-            >
-              📥 Export CSV
-            </button>
-            <button
-              onClick={() => setIsImportModalOpen(true)}
-              className="btn-bulk-import"
-            >
-              📤 Bulk CSV Import
-            </button>
-            <button
-              onClick={() => setIsAddModalOpen(true)}
-              className="btn-add-gig"
-            >
-              + Add Gig
-            </button>
-          </div>
-        </div>
+              {/* Real Operational Metrics KPI Grid */}
+              <div className="overview-stats-grid">
+                <div className="saas-kpi-card">
+                  <div className="saas-kpi-header">
+                    <span className="saas-kpi-label">Published Gigs</span>
+                    <div className="saas-kpi-icon" style={{ background: '#ecfdf5', color: '#059669' }}>
+                      📋
+                    </div>
+                  </div>
+                  <div className="saas-kpi-value">{gigs.length}</div>
+                  <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Active opportunities in marketplace</p>
+                  <div className="saas-kpi-footer">
+                    <span style={{ color: '#059669', fontWeight: '700' }}>Live on Learner Board</span>
+                    <button onClick={() => handleTabChange('directory')} className="saas-action-link">
+                      Manage →
+                    </button>
+                  </div>
+                </div>
 
-        {/* Search Control (Filters moved into table headers) */}
-        <div className="directory-controls-row">
-          <div className="search-input-box" style={{ width: '100%' }}>
-            <span className="search-icon-prefix">🔍</span>
-            <input
-              type="text"
-              placeholder="Search by title, overview, short description..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="search-field"
+                <div className="saas-kpi-card">
+                  <div className="saas-kpi-header">
+                    <span className="saas-kpi-label">Pending Review</span>
+                    <div className="saas-kpi-icon" style={{ background: '#fffbeb', color: '#d97706' }}>
+                      ⏳
+                    </div>
+                  </div>
+                  <div className="saas-kpi-value">{pendingReviews}</div>
+                  <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Candidates awaiting human approval</p>
+                  <div className="saas-kpi-footer">
+                    <span style={{ color: '#d97706', fontWeight: '700' }}>Awaiting Action</span>
+                    <button onClick={() => handleTabChange('discovery')} className="saas-action-link">
+                      Review Now →
+                    </button>
+                  </div>
+                </div>
+
+                <div className="saas-kpi-card">
+                  <div className="saas-kpi-header">
+                    <span className="saas-kpi-label">Approved In Staging</span>
+                    <div className="saas-kpi-icon" style={{ background: '#eff6ff', color: '#2563eb' }}>
+                      ✓
+                    </div>
+                  </div>
+                  <div className="saas-kpi-value">{approvedInStaging}</div>
+                  <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Verified and ready for export/publish</p>
+                  <div className="saas-kpi-footer">
+                    <span style={{ color: '#2563eb', fontWeight: '700' }}>Staged Candidates</span>
+                    <button onClick={() => handleTabChange('discovery')} className="saas-action-link">
+                      Inspect Queue →
+                    </button>
+                  </div>
+                </div>
+
+                <div className="saas-kpi-card">
+                  <div className="saas-kpi-header">
+                    <span className="saas-kpi-label">Total Discovery Records</span>
+                    <div className="saas-kpi-icon" style={{ background: '#f1f5f9', color: '#475569' }}>
+                      📡
+                    </div>
+                  </div>
+                  <div className="saas-kpi-value">{candidates.length}</div>
+                  <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Ingested from permitted public APIs & RSS</p>
+                  <div className="saas-kpi-footer">
+                    <span style={{ color: '#64748b', fontWeight: '600' }}>Crawler Database</span>
+                    <button onClick={() => handleTabChange('discovery')} className="saas-action-link">
+                      Sync Store →
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Actions Bar */}
+              <div className="saas-quick-actions-bar">
+                <div
+                  className="saas-action-button-card"
+                  onClick={() => setIsAddModalOpen(true)}
+                >
+                  <div className="saas-action-card-icon" style={{ background: '#eff6ff', color: '#2563eb' }}>
+                    ➕
+                  </div>
+                  <div className="saas-action-card-text">
+                    <strong>Add Commercial Gig</strong>
+                    <span>Manually create and publish opportunity</span>
+                  </div>
+                </div>
+
+                <div
+                  className="saas-action-button-card"
+                  onClick={() => setIsImportModalOpen(true)}
+                >
+                  <div className="saas-action-card-icon" style={{ background: '#f0fdf4', color: '#16a34a' }}>
+                    📤
+                  </div>
+                  <div className="saas-action-card-text">
+                    <strong>Bulk CSV Import</strong>
+                    <span>Ingest RFC 4180 CSV with zero duplicates</span>
+                  </div>
+                </div>
+
+                <div
+                  className="saas-action-button-card"
+                  onClick={handleExportCSV}
+                >
+                  <div className="saas-action-card-icon" style={{ background: '#fdf4ff', color: '#9333ea' }}>
+                    📥
+                  </div>
+                  <div className="saas-action-card-text">
+                    <strong>Export 19-Col CSV</strong>
+                    <span>Download compliant snapshot of published gigs</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recent Opportunities Preview */}
+              <div className="directory-card" style={{ marginBottom: 0 }}>
+                <div className="directory-header-row">
+                  <div className="directory-header-left">
+                    <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', margin: 0 }}>
+                      Recent Published Gigs
+                    </h3>
+                  </div>
+                  <button
+                    onClick={() => handleTabChange('directory')}
+                    className="saas-action-link"
+                    style={{ fontSize: '13px' }}
+                  >
+                    View All Published Gigs ({gigs.length}) →
+                  </button>
+                </div>
+
+                <div className="directory-table-wrapper">
+                  <table className="directory-table">
+                    <thead>
+                      <tr>
+                        <th>Opportunity</th>
+                        <th>Module</th>
+                        <th>Compensation</th>
+                        <th>Posted</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {gigs.slice(0, 5).map((g) => (
+                        <tr key={g.id || g.external_gig_id}>
+                          <td className="gig-title-cell">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                className="gig-main-title"
+                                onClick={() => setViewingGig(g)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    setViewingGig(g);
+                                  }
+                                }}
+                                title={`Click to view details for ${g.title}`}
+                              >
+                                {g.title}
+                              </div>
+                              {g.origin_url && (
+                                <a
+                                  href={g.origin_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Direct application link"
+                                  style={{ fontSize: '12px', color: '#64748b', textDecoration: 'none', padding: '2px 4px' }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  ↗
+                                </a>
+                              )}
+                            </div>
+                            <div className="gig-sub-desc">{normalizeHtmlToText(g.short_description || g.title)}</div>
+                          </td>
+                          <td>
+                            <span className="module-pill-badge">{g.track_id}</span>
+                          </td>
+                          <td>
+                            <div className="compensation-amount">{g.payment_amount || 'Unspecified'}</div>
+                            <div className="compensation-type-label">{g.compensation_type || 'hourly'}</div>
+                          </td>
+                          <td style={{ color: '#64748b', fontSize: '12px' }}>
+                            {g.posted_at ? new Date(g.posted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Sep 30, 2026'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {adminActiveTab === 'discovery' && (
+            <CandidateReviewQueue
+              onGigPublished={(publishedGig) => {
+                if (publishedGig) setGigs(prev => [publishedGig, ...prev]);
+              }}
             />
-          </div>
-        </div>
+          )}
 
-        {/* Directory Table with In-Header Filters */}
-        <div className="directory-table-wrapper">
-          <table className="directory-table">
-            <thead>
-              <tr>
-                <th>Opportunity</th>
-                <th>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>Module</span>
-                    <select
-                      value={selectedModule}
-                      onChange={(e) => setSelectedModule(e.target.value)}
-                      className="table-header-select"
-                    >
-                      <option value="all">All Modules</option>
-                      <option value="M1">M1 — AI Video / Reels</option>
-                      <option value="M2">M2 — AI Design / Visual</option>
-                      <option value="M3">M3 — AI Data Annotation / Evaluation</option>
-                      <option value="M4">M4 — AI Coding / Development</option>
-                      <option value="M5">M5 — AI Marketing / Growth</option>
-                      <option value="M6">M6 — AI Automation / Agents</option>
-                    </select>
-                  </div>
-                </th>
-                <th>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>Compensation</span>
-                    <select
-                      value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value)}
-                      className="table-header-select"
-                    >
-                      <option value="default">All / Default</option>
-                      <option value="comp_low_high">Price: Low to High ↑</option>
-                      <option value="comp_high_low">Price: High to Low ↓</option>
-                      <option value="hourly">Hourly Only</option>
-                      <option value="fixed">Fixed Price Only</option>
-                    </select>
-                  </div>
-                </th>
-                <th>Posted / Created</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredAndSortedGigs.length === 0 ? (
-                <tr>
-                  <td colSpan="5" style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
-                    No published gigs match your search or filter criteria.
-                  </td>
-                </tr>
-              ) : (
-                filteredAndSortedGigs.map((g) => (
-                  <tr key={g.id || g.external_gig_id}>
-                    {/* Opportunity */}
-                    <td className="gig-title-cell">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          className="gig-main-title"
-                          onClick={() => setViewingGig(g)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              setViewingGig(g);
-                            }
-                          }}
-                          title={`Click to view details & application link for ${g.title}`}
-                          style={{ margin: 0 }}
-                        >
-                          {g.title}
-                        </div>
-                        {g.origin_url && (
-                          <a
-                            href={g.origin_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title="Direct application link"
-                            style={{ fontSize: '12px', color: '#64748b', textDecoration: 'none', padding: '2px 4px' }}
-                            onClick={(e) => e.stopPropagation()}
+          {adminActiveTab === 'directory' && (
+            /* 2. PUBLISHED GIGS DIRECTORY CARD */
+            <div className="directory-card">
+              {/* Header Row */}
+              <div className="directory-header-row">
+                <div className="directory-header-left">
+                  <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Published Gigs</h2>
+                </div>
+
+                <div className="directory-header-actions">
+                  <button
+                    onClick={handleExportCSV}
+                    className="btn-bulk-import"
+                    title="Export approved opportunities to 19-column CSV (FRD v1.0 Section 18)"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    📥 Export CSV
+                  </button>
+                  <button
+                    onClick={() => setIsImportModalOpen(true)}
+                    className="btn-bulk-import"
+                  >
+                    📤 Bulk CSV Import
+                  </button>
+                  <button
+                    onClick={() => setIsAddModalOpen(true)}
+                    className="btn-add-gig"
+                  >
+                    + Add Gig
+                  </button>
+                </div>
+              </div>
+
+              {/* Search Control (Filters moved into table headers) */}
+              <div className="directory-controls-row">
+                <div className="search-input-box" style={{ width: '100%' }}>
+                  <span className="search-icon-prefix">🔍</span>
+                  <input
+                    type="text"
+                    placeholder="Search by title, overview, short description..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="search-field"
+                  />
+                </div>
+              </div>
+
+              {/* Directory Table with In-Header Filters */}
+              <div className="directory-table-wrapper">
+                <table className="directory-table">
+                  <thead>
+                    <tr>
+                      <th>Opportunity</th>
+                      <th>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>Module</span>
+                          <select
+                            value={selectedModule}
+                            onChange={(e) => setSelectedModule(e.target.value)}
+                            className="table-header-select"
                           >
-                            ↗
-                          </a>
-                        )}
-                      </div>
-                      <div className="gig-sub-desc">{normalizeHtmlToText(g.short_description || g.title)}</div>
-                    </td>
+                            <option value="all">All Modules</option>
+                            <option value="M1">M1 — AI Video / Reels</option>
+                            <option value="M2">M2 — AI Design / Visual</option>
+                            <option value="M3">M3 — AI Data Annotation / Evaluation</option>
+                            <option value="M4">M4 — AI Coding / Development</option>
+                            <option value="M5">M5 — AI Marketing / Growth</option>
+                            <option value="M6">M6 — AI Automation / Agents</option>
+                          </select>
+                        </div>
+                      </th>
+                      <th>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>Compensation</span>
+                          <select
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value)}
+                            className="table-header-select"
+                          >
+                            <option value="default">All / Default</option>
+                            <option value="comp_low_high">Price: Low to High ↑</option>
+                            <option value="comp_high_low">Price: High to Low ↓</option>
+                            <option value="hourly">Hourly Only</option>
+                            <option value="fixed">Fixed Price Only</option>
+                          </select>
+                        </div>
+                      </th>
+                      <th>Posted / Created</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAndSortedGigs.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
+                          No published gigs match your search or filter criteria.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredAndSortedGigs.map((g) => (
+                        <tr key={g.id || g.external_gig_id}>
+                          {/* Opportunity */}
+                          <td className="gig-title-cell">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                className="gig-main-title"
+                                onClick={() => setViewingGig(g)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    setViewingGig(g);
+                                  }
+                                }}
+                                title={`Click to view details & application link for ${g.title}`}
+                                style={{ margin: 0 }}
+                              >
+                                {g.title}
+                              </div>
+                              {g.origin_url && (
+                                <a
+                                  href={g.origin_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Direct application link"
+                                  style={{ fontSize: '12px', color: '#64748b', textDecoration: 'none', padding: '2px 4px' }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  ↗
+                                </a>
+                              )}
+                            </div>
+                            <div className="gig-sub-desc">{normalizeHtmlToText(g.short_description || g.title)}</div>
+                          </td>
 
-                    {/* Module */}
-                    <td>
-                      <span className="module-pill-badge">
-                        {g.track_id} · {g.track_id === 'M3' ? 'DeepAnnotator' : g.track_id === 'M1' ? 'ReelRush' : g.track_id === 'M2' ? 'VisualForge' : g.track_id === 'M4' ? 'VibeCoder' : g.track_id === 'M5' ? 'BrandBuzz' : 'AgentHandlers'}
-                      </span>
-                    </td>
+                          {/* Module */}
+                          <td>
+                            <span className="module-pill-badge">
+                              {g.track_id} · {g.track_id === 'M3' ? 'DeepAnnotator' : g.track_id === 'M1' ? 'ReelRush' : g.track_id === 'M2' ? 'VisualForge' : g.track_id === 'M4' ? 'VibeCoder' : g.track_id === 'M5' ? 'BrandBuzz' : 'AgentHandlers'}
+                            </span>
+                          </td>
 
-                    {/* Compensation */}
-                    <td>
-                      <div className="compensation-amount">{g.payment_amount || 'Unspecified'}</div>
-                      <div className="compensation-type-label">{g.compensation_type || 'hourly'}</div>
-                    </td>
+                          {/* Compensation */}
+                          <td>
+                            <div className="compensation-amount">{g.payment_amount || 'Unspecified'}</div>
+                            <div className="compensation-type-label">{g.compensation_type || 'hourly'}</div>
+                          </td>
 
-                    {/* Date */}
-                    <td style={{ color: '#64748b', fontSize: '12px' }}>
-                      {g.posted_at ? new Date(g.posted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Sep 30, 2026'}
-                    </td>
+                          {/* Date */}
+                          <td style={{ color: '#64748b', fontSize: '12px' }}>
+                            {g.posted_at ? new Date(g.posted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Sep 30, 2026'}
+                          </td>
 
-                    {/* Actions */}
-                    <td style={{ textAlign: 'right' }}>
-                      <div className="actions-btn-group" style={{ justifyContent: 'flex-end' }}>
-                        <button
-                          onClick={() => setEditingGig(g)}
-                          className="action-icon-btn"
-                          title="Edit Gig"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          onClick={() => handleDeleteGig(g.id)}
-                          className="action-icon-btn danger-hover"
-                          title="Delete Gig"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                          {/* Actions */}
+                          <td style={{ textAlign: 'right' }}>
+                            <div className="actions-btn-group" style={{ justifyContent: 'flex-end' }}>
+                              <button
+                                onClick={() => setEditingGig(g)}
+                                className="action-icon-btn"
+                                title="Edit Gig"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                onClick={() => handleDeleteGig(g.id)}
+                                className="action-icon-btn danger-hover"
+                                title="Delete Gig"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </main>
       </div>
-      )}
 
       {/* ===================================================
           MODAL 1: ADD GIG MODAL

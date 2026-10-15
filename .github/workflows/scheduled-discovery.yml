@@ -1,0 +1,67 @@
+name: Scheduled AI Gig Discovery Cycle
+
+on:
+  schedule:
+    # Every 12 hours: 00:00 and 12:00 UTC
+    - cron: '0 */12 * * *'
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Specific discovery_job ID to claim and execute'
+        required: false
+        default: ''
+      source:
+        description: 'Discovery source scope'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'api'
+          - 'rss'
+          - 'fixtures'
+      limit:
+        description: 'Maximum items to discover'
+        required: false
+        default: '50'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upshift-discovery-pipeline
+  cancel-in-progress: false
+
+jobs:
+  run-discovery:
+    name: Execute Ingestion Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Discovery Ingestion Worker
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CANDIDATE_STORAGE: supabase
+        run: |
+          SOURCE="${{ github.event.inputs.source || 'all' }}"
+          LIMIT="${{ github.event.inputs.limit || '50' }}"
+          JOB_ID="${{ github.event.inputs.job_id || '' }}"
+          echo "Starting UpShift discovery run at $(date -u) with source=$SOURCE limit=$LIMIT job_id=$JOB_ID"
+          node src/server/worker.js --storage=supabase --job-id="$JOB_ID" --source=$SOURCE --limit=$LIMIT

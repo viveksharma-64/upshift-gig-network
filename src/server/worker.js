@@ -3,8 +3,12 @@
  * UpShift AI Gig Discovery Worker
  * CLI tool for running manual or scheduled discovery cycles.
  *
- * Usage:
- *   node src/server/worker.js [--source=all|fixtures|rss|api] [--limit=10] [--storage=supabase|json]
+ * Capabilities:
+ * - Direct execution: node src/server/worker.js [--source=all|fixtures|rss|api] [--limit=10] [--storage=supabase|json]
+ * - Queue consumer: node src/server/worker.js --storage=supabase --job-id=<id> OR --consume-queue
+ * - Multi-process concurrency locking via JobManager atomic leases
+ * - Execution heartbeat and crash recovery
+ * - Stages candidates for human review (never auto-publishes)
  */
 
 import './config.js';
@@ -18,13 +22,22 @@ import {
   getServerSupabaseClient,
   GIG_CANDIDATES_TABLE
 } from './candidateRepository.js';
+import {
+  JobManager,
+  defaultJobManager,
+  JOB_STATUS,
+  JOB_TYPE,
+  TRIGGER_TYPE
+} from './jobManager.js';
 
 // Parse command-line args
 const args = process.argv.slice(2);
 const options = {
   source: 'all',
   limit: 10,
-  storage: process.env.CANDIDATE_STORAGE || (process.env.SUPABASE_SERVICE_ROLE_KEY ? 'supabase' : 'json')
+  storage: process.env.CANDIDATE_STORAGE || (process.env.SUPABASE_SERVICE_ROLE_KEY ? 'supabase' : 'json'),
+  jobId: '',
+  consumeQueue: false
 };
 
 for (const arg of args) {
@@ -34,34 +47,88 @@ for (const arg of args) {
     options.limit = parseInt(arg.split('=')[1], 10) || 10;
   } else if (arg.startsWith('--storage=')) {
     options.storage = arg.split('=')[1].toLowerCase();
+  } else if (arg.startsWith('--job-id=')) {
+    options.jobId = arg.split('=')[1].trim();
+  } else if (arg === '--consume-queue' || arg === '--queue') {
+    options.consumeQueue = true;
   }
 }
 
 async function main() {
   console.log('====================================================');
   console.log(' UpShift — AI-Powered Gig Discovery Worker');
-  console.log(` Mode: Source=${options.source} | Limit=${options.limit} | Storage=${options.storage}`);
+  console.log(` Mode: Source=${options.source} | Limit=${options.limit} | Storage=${options.storage}${options.jobId ? ` | TargetJob=${options.jobId}` : ''}`);
   console.log('====================================================');
-
-  const selectedProviders = [];
-  if (options.source === 'fixtures' || options.source === 'all') {
-    selectedProviders.push(new FixtureDiscoveryProvider());
-  }
-  if (options.source === 'rss' || options.source === 'all') {
-    selectedProviders.push(new RssDiscoveryProvider());
-  }
-  if (options.source === 'api' || options.source === 'all') {
-    selectedProviders.push(new PublicApiDiscoveryProvider());
-  }
 
   // Select repository adapter based on storage configuration
   let repository = defaultCandidateRepository;
+  let serverSupabase = null;
+  let jobManager = defaultJobManager;
+
   if (options.storage === 'supabase') {
-    const serverSupabase = getServerSupabaseClient();
+    serverSupabase = getServerSupabaseClient();
     repository = new SupabaseCandidateRepository(serverSupabase, GIG_CANDIDATES_TABLE);
+    jobManager = new JobManager({ client: serverSupabase });
     console.log(`[Worker] Connected to persistent staging table: public.${GIG_CANDIDATES_TABLE}`);
   } else {
     console.log('[Worker] Operating in local development/test adapter mode (data/candidates.json)');
+  }
+
+  // Queue Consumer Integration (Fix 1)
+  const workerId = `runner_${process.pid}_${Math.random().toString(36).slice(2, 8)}`;
+  let activeJob = null;
+
+  // 1. Check if specific jobId was targeted
+  if (options.jobId) {
+    try {
+      const existing = await jobManager.getJob(options.jobId);
+      if (existing && (existing.status === JOB_STATUS.PENDING || existing.status === JOB_STATUS.RUNNING)) {
+        await jobManager.claimJob(workerId);
+        activeJob = existing;
+        console.log(`[Worker] Claimed target admin job: ${activeJob.id}`);
+      }
+    } catch (claimErr) {
+      console.warn(`[Worker] Notice claiming target job ${options.jobId}:`, claimErr.message);
+    }
+  }
+
+  // 2. If no specific job or queue consumer flag is active, check for any pending job in queue
+  if (!activeJob && (options.consumeQueue || options.storage === 'supabase')) {
+    try {
+      const pending = await jobManager.claimJob(workerId);
+      if (pending) {
+        activeJob = pending;
+        console.log(`[Worker] Claimed pending job from queue: ${activeJob.id} (Trigger: ${activeJob.trigger_type})`);
+      }
+    } catch {}
+  }
+
+  // 3. If running scheduled cycle in Supabase without a prior job record, create one to track run
+  if (!activeJob && options.storage === 'supabase') {
+    try {
+      activeJob = await jobManager.createJob({
+        triggerType: TRIGGER_TYPE.SCHEDULED,
+        jobType: JOB_TYPE.DISCOVERY,
+        params: { source: options.source, limit: options.limit }
+      });
+      await jobManager.claimJob(workerId);
+      console.log(`[Worker] Registered scheduled discovery job: ${activeJob.id}`);
+    } catch {}
+  }
+
+  // Determine effective execution options
+  const effectiveSource = activeJob?.params?.source || options.source;
+  const effectiveLimit = activeJob?.params?.limit || options.limit;
+
+  const selectedProviders = [];
+  if (effectiveSource === 'fixtures' || effectiveSource === 'all') {
+    selectedProviders.push(new FixtureDiscoveryProvider());
+  }
+  if (effectiveSource === 'rss' || effectiveSource === 'all') {
+    selectedProviders.push(new RssDiscoveryProvider());
+  }
+  if (effectiveSource === 'api' || effectiveSource === 'all') {
+    selectedProviders.push(new PublicApiDiscoveryProvider());
   }
 
   const pipeline = new DiscoveryPipeline({
@@ -69,10 +136,43 @@ async function main() {
     repository
   });
 
+  // Heartbeat loop to keep lease alive during long crawls
+  let heartbeatTimer = null;
+  if (activeJob) {
+    heartbeatTimer = setInterval(async () => {
+      try {
+        await jobManager.heartbeat(activeJob.id);
+      } catch {}
+    }, 30000);
+  }
+
   const startTime = Date.now();
   try {
-    const stats = await pipeline.runCycle({ limit: options.limit });
+    const stats = await pipeline.runCycle({ limit: effectiveLimit });
     const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(2);
+
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+
+    // Record job completion
+    if (activeJob) {
+      const allCandidates = await repository.getAll();
+      const pendingCount = allCandidates.filter(c => c.status === 'pending_review').length;
+
+      const summary = {
+        fetched: stats.discovered || 0,
+        relevant: stats.relevant || 0,
+        rejected: stats.rejected || 0,
+        duplicate: stats.duplicates || 0,
+        uncertain: stats.uncertain || 0,
+        newly_saved: stats.inserted || 0,
+        updated: stats.updated || 0,
+        total_pending: pendingCount,
+        total_store: stats.total
+      };
+
+      await jobManager.completeJob(activeJob.id, summary);
+      console.log(`[Worker] Job ${activeJob.id} successfully completed and recorded.`);
+    }
 
     console.log('\n====================================================');
     console.log(' Ingestion Cycle Summary:');
@@ -85,6 +185,12 @@ async function main() {
     console.log(` - Store Total    : ${stats.total}`);
     console.log('====================================================\n');
   } catch (err) {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    if (activeJob) {
+      try {
+        await jobManager.failJob(activeJob.id, err.message);
+      } catch {}
+    }
     console.error('[Worker Fatal Error]:', err);
     process.exit(1);
   }

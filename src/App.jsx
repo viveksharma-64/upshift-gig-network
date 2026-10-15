@@ -61,7 +61,7 @@ export function AuthProvider({ children }) {
         setTimeout(() => {
           loadProfile(session.user);
         }, 0);
-      } else {
+      } else if (_event === 'SIGNED_OUT') {
         setUser(null);
         setProfile(null);
         localStorage.removeItem('upshift_user');
@@ -176,8 +176,65 @@ export function AuthProvider({ children }) {
     }
   }
 
+  // Update profile (strictly permits learner profile fields; blocks role escalation)
+  async function updateProfile(updates) {
+    if (!user?.id) throw new Error('Not authenticated');
+
+    const sanitized = { ...updates };
+    delete sanitized.role;
+    delete sanitized.id;
+    delete sanitized.created_at;
+
+    let updatedProfile = { ...(profile || {}), ...sanitized };
+
+    // 1. Update public.profiles if connected
+    try {
+      const payload = {
+        updated_at: new Date().toISOString()
+      };
+      if (sanitized.full_name !== undefined) payload.full_name = sanitized.full_name;
+      if (sanitized.track_id !== undefined) payload.track_id = sanitized.track_id;
+      if (sanitized.avatar_url !== undefined) payload.avatar_url = sanitized.avatar_url;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(payload)
+        .eq('id', user.id)
+        .select()
+        .single();
+
+      if (!error && data) {
+        updatedProfile = { ...updatedProfile, ...data };
+      }
+    } catch (e) {
+      console.warn('Profile DB update note:', e);
+    }
+
+    // 2. Update user_metadata in Supabase Auth
+    try {
+      const meta = {};
+      if (sanitized.first_name !== undefined) meta.first_name = sanitized.first_name;
+      if (sanitized.last_name !== undefined) meta.last_name = sanitized.last_name;
+      if (sanitized.full_name !== undefined) meta.full_name = sanitized.full_name;
+      if (sanitized.track_id !== undefined) meta.track_id = sanitized.track_id;
+
+      const { data: authData, error: authError } = await supabase.auth.updateUser({
+        data: meta
+      });
+      if (!authError && authData?.user) {
+        setUser(authData.user);
+        localStorage.setItem('upshift_user', JSON.stringify(authData.user));
+      }
+    } catch (e) {
+      console.warn('Auth user_metadata update note:', e);
+    }
+
+    setProfile(updatedProfile);
+    return { profile: updatedProfile };
+  }
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signOut, resetPassword }}>
+    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signOut, resetPassword, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );

@@ -89,22 +89,6 @@ export async function verifyTokenAndRole(token, client = null) {
     };
   }
 
-  // 1. Development admin token fallback: strictly non-production only
-  if (cleanToken === 'dev-admin-token') {
-    if (process.env.NODE_ENV === 'production') {
-      return {
-        valid: false,
-        statusCode: 401,
-        error: 'Unauthorized: Development admin tokens are strictly forbidden in production mode.'
-      };
-    }
-    return {
-      valid: true,
-      user: { id: 'dev-admin-local', email: 'admin@upshift.local' },
-      role: 'admin'
-    };
-  }
-
   const activeClient = client || getAuthSupabaseClient(cleanToken);
 
   try {
@@ -382,19 +366,42 @@ export async function handleCandidateApiRequest(req, res, options = {}) {
   res.end(JSON.stringify({ error: 'Method not allowed' }));
 }
 
+import { validateJobOptions, defaultJobManager, JOB_STATUS, TRIGGER_TYPE, JOB_TYPE } from './jobManager.js';
+
 let isDiscoveryRunning = false;
+const rateLimitMap = new Map(); // key -> [timestamps]
 
 /**
- * Resets the discovery concurrency lock (for test teardowns and lifecycle recovery)
+ * Checks sliding window rate limit (max 10 requests per 60 seconds per admin/IP)
+ * @param {string} key
+ * @returns {boolean} true if permitted, false if rate limited
+ */
+export function checkRateLimit(key, maxRequests = 10, windowMs = 60000) {
+  const now = Date.now();
+  const timestamps = rateLimitMap.get(key) || [];
+  const validTimestamps = timestamps.filter(ts => now - ts < windowMs);
+  if (validTimestamps.length >= maxRequests) {
+    rateLimitMap.set(key, validTimestamps);
+    return false;
+  }
+  validTimestamps.push(now);
+  rateLimitMap.set(key, validTimestamps);
+  return true;
+}
+
+/**
+ * Resets the discovery concurrency lock and rate limit cache (for test teardowns)
  */
 export function resetDiscoveryLock() {
   isDiscoveryRunning = false;
+  rateLimitMap.clear();
 }
 
 /**
  * HTTP handler for triggering a live AI gig discovery cycle (/api/discovery/run)
  * Protected: requires verified administrator authorization.
  * Concurrency protected: prevents overlapping execution.
+ * Rate limited: prevents accidental or malicious discovery abuse.
  *
  * @param {object} req - Incoming request
  * @param {object} res - Server response
@@ -424,7 +431,33 @@ export async function handleDiscoveryRunRequest(req, res, options = {}) {
     authRole = authCheck.role;
   }
 
-  // 2. Concurrency lock: prevent overlapping runs
+  // 2. Rate limiting check
+  const rateLimitKey = authUser?.id || req.headers?.['x-forwarded-for'] || 'admin_user';
+  if (!options.skipRateLimit && !checkRateLimit(rateLimitKey)) {
+    res.statusCode = 429;
+    res.setHeader?.('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: 'Too many discovery requests. Please wait a moment before trying again.' }));
+    return;
+  }
+
+  // 3. Option validation & allowlisting
+  let rawBody = {};
+  if (options.cycleOptions) {
+    rawBody = options.cycleOptions;
+  } else if (req.body) {
+    rawBody = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+  }
+
+  const optCheck = validateJobOptions(rawBody);
+  if (!optCheck.valid) {
+    res.statusCode = 400;
+    res.setHeader?.('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: `Invalid request options: ${optCheck.error}` }));
+    return;
+  }
+  const sanitizedCycleOptions = optCheck.sanitized;
+
+  // 4. Concurrency lock: prevent overlapping runs
   if (isDiscoveryRunning) {
     console.warn('[SERVER LOG] POST /api/discovery/run - 409 Conflict: discovery cycle already in progress');
     res.statusCode = 409;
@@ -433,8 +466,56 @@ export async function handleDiscoveryRunRequest(req, res, options = {}) {
     return;
   }
 
+  // 5. Create persistent job record
+  const jobManager = options.jobManager || defaultJobManager;
+  const jobRecord = await jobManager.createJob({
+    triggerType: TRIGGER_TYPE.ADMIN,
+    requestedById: authUser?.id || null,
+    jobType: JOB_TYPE.DISCOVERY,
+    params: sanitizedCycleOptions
+  });
+
+  // Check if asynchronous response was requested
+  const isAsync = options.async || rawBody.async || req.headers?.['prefer'] === 'respond-async';
+  if (isAsync) {
+    res.statusCode = 202;
+    res.setHeader?.('Content-Type', 'application/json');
+    res.end(JSON.stringify({
+      success: true,
+      jobId: jobRecord.id,
+      status: JOB_STATUS.PENDING,
+      message: 'Discovery job successfully accepted and queued for execution.',
+      params: sanitizedCycleOptions
+    }));
+
+    // Trigger execution in background
+    (async () => {
+      try {
+        isDiscoveryRunning = true;
+        await jobManager.claimJob('local_async_runner');
+        const { DiscoveryPipeline } = await import('./pipeline.js');
+        const { PublicApiDiscoveryProvider } = await import('./providers/publicApiProvider.js');
+        const { RssDiscoveryProvider } = await import('./providers/rssProvider.js');
+        const { defaultCandidateRepository } = await import('./candidateRepository.js');
+
+        const pipeline = new DiscoveryPipeline({
+          repository: options.repository || defaultCandidateRepository,
+          providers: [new PublicApiDiscoveryProvider(), new RssDiscoveryProvider()],
+          llmService: options.llmService || { hasConfiguredProvider: () => false }
+        });
+        const cycleStats = await pipeline.runCycle(sanitizedCycleOptions);
+        await jobManager.completeJob(jobRecord.id, cycleStats);
+      } catch (bgErr) {
+        await jobManager.failJob(jobRecord.id, bgErr.message);
+      } finally {
+        isDiscoveryRunning = false;
+      }
+    })();
+    return;
+  }
+
   isDiscoveryRunning = true;
-  console.log(`[SERVER LOG] POST /api/discovery/run - Starting live discovery cycle (Admin: ${authUser?.email || 'verified'})...`);
+  console.log(`[SERVER LOG] POST /api/discovery/run - Starting live discovery cycle (Admin: ${authUser?.email || 'verified'}, Job: ${jobRecord.id})...`);
   try {
     const { DiscoveryPipeline } = await import('./pipeline.js');
     const { PublicApiDiscoveryProvider } = await import('./providers/publicApiProvider.js');
@@ -453,9 +534,7 @@ export async function handleDiscoveryRunRequest(req, res, options = {}) {
       llmService: options.llmService || { hasConfiguredProvider: () => false }
     });
 
-    const cycleOptions = options.cycleOptions || { limit: 50, limitPerFeed: 6 };
-    const cycleStats = await pipeline.runCycle(cycleOptions);
-
+    const cycleStats = await pipeline.runCycle(sanitizedCycleOptions);
     const allCandidates = await repository.getAll();
 
     const pendingCount = allCandidates.filter(c => c.status === CANDIDATE_STATUS.PENDING_REVIEW).length;
@@ -463,19 +542,24 @@ export async function handleDiscoveryRunRequest(req, res, options = {}) {
 
     console.log(`[SERVER LOG] POST /api/discovery/run - 200 OK (Discovered: ${cycleStats.discovered || 0}, Relevant: ${cycleStats.relevant || 0}, Inserted: ${cycleStats.inserted || 0}, In Store: ${allCandidates.length})`);
 
+    const summary = {
+      fetched: cycleStats.discovered || 0,
+      relevant: cycleStats.relevant || 0,
+      rejected: cycleStats.rejected || 0,
+      duplicate: cycleStats.duplicates || 0,
+      uncertain: cycleStats.uncertain || uncertainCount,
+      newly_saved: cycleStats.inserted || 0,
+      updated: cycleStats.updated || 0,
+      total_pending: pendingCount,
+      total_store: allCandidates.length
+    };
+
+    await jobManager.completeJob(jobRecord.id, summary);
+
     const responsePayload = {
       success: true,
-      counts: {
-        fetched: cycleStats.discovered || 0,
-        relevant: cycleStats.relevant || 0,
-        rejected: cycleStats.rejected || 0,
-        duplicate: cycleStats.duplicates || 0,
-        uncertain: cycleStats.uncertain || uncertainCount,
-        newly_saved: cycleStats.inserted || 0,
-        updated: cycleStats.updated || 0,
-        total_pending: pendingCount,
-        total_store: allCandidates.length
-      },
+      jobId: jobRecord.id,
+      counts: summary,
       candidates: allCandidates
     };
 
@@ -484,11 +568,61 @@ export async function handleDiscoveryRunRequest(req, res, options = {}) {
     res.end(JSON.stringify(responsePayload));
   } catch (err) {
     console.error(`[SERVER LOG] POST /api/discovery/run - 500 Error: ${err.message}`);
+    await jobManager.failJob(jobRecord.id, err.message);
     res.statusCode = 500;
     res.setHeader?.('Content-Type', 'application/json');
-    res.end(JSON.stringify({ error: `Discovery cycle failed: ${err.message}` }));
+    res.end(JSON.stringify({ error: `Discovery cycle failed: ${err.message}`, jobId: jobRecord.id }));
   } finally {
     isDiscoveryRunning = false;
   }
 }
+
+/**
+ * HTTP handler for retrieving operational status and job progress (/api/discovery/status, /api/discovery/jobs)
+ * @param {object} req - Incoming request
+ * @param {object} res - Server response
+ * @param {object} [options]
+ */
+export async function handleJobStatusRequest(req, res, options = {}) {
+  // Authoritative admin verification
+  if (!options.skipAuth) {
+    const authCheck = await verifyAdminAuthorization(req, options);
+    if (!authCheck.authorized) {
+      res.statusCode = authCheck.statusCode;
+      res.setHeader?.('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: authCheck.error }));
+      return;
+    }
+  }
+
+  const jobManager = options.jobManager || defaultJobManager;
+  const parsedUrl = new URL(req.url || '/', 'http://localhost');
+  const jobId = parsedUrl.searchParams.get('jobId') || parsedUrl.searchParams.get('id');
+
+  try {
+    if (jobId) {
+      const job = await jobManager.getJob(jobId);
+      if (!job) {
+        res.statusCode = 404;
+        res.setHeader?.('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: `Job with ID '${jobId}' not found.` }));
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader?.('Content-Type', 'application/json');
+      res.end(JSON.stringify({ success: true, job }));
+      return;
+    }
+
+    const operationalStatus = await jobManager.getOperationalStatus();
+    res.statusCode = 200;
+    res.setHeader?.('Content-Type', 'application/json');
+    res.end(JSON.stringify({ success: true, ...operationalStatus }));
+  } catch (err) {
+    res.statusCode = 500;
+    res.setHeader?.('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: `Failed to fetch status: ${err.message}` }));
+  }
+}
+
 

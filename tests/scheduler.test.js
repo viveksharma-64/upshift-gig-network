@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DailyHealthScheduler } from '../src/server/scheduler.js';
-import { runHealthMonitoringCycle } from '../src/server/monitor.js';
+import { runHealthMonitoringCycle, probeUrlAvailability } from '../src/server/monitor.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -253,5 +253,110 @@ test('Daily Scheduler & In-Place Verification Suite', async (t) => {
     assert.equal(scheduler.isActive, false);
     assert.equal(scheduler.timer, null);
     assert.equal(fs.existsSync(TEST_LOCK_FILE), false, 'Lockfile must be removed upon stop');
+  });
+
+  await t.test('Scenario S8: probeUrlAvailability blocks loopback, cloud metadata, and unsafe redirects with SSRF protection', async () => {
+    // 1. Loopback addresses must be blocked
+    const resLoopback = await probeUrlAvailability('http://127.0.0.1:8080/test');
+    assert.equal(resLoopback.accessible, false);
+    assert.equal(resLoopback.isInconclusive, true);
+    assert.equal(resLoopback.statusCode, 400);
+    assert.match(resLoopback.reason, /Blocked by SSRF policy/i);
+
+    const resLocalhost = await probeUrlAvailability('http://localhost:3000/api');
+    assert.equal(resLocalhost.accessible, false);
+    assert.equal(resLocalhost.isInconclusive, true);
+    assert.equal(resLocalhost.statusCode, 400);
+    assert.match(resLocalhost.reason, /Blocked by SSRF policy/i);
+
+    // 2. Link-local and cloud metadata addresses must be blocked
+    const resMetadata = await probeUrlAvailability('http://169.254.169.254/latest/meta-data/');
+    assert.equal(resMetadata.accessible, false);
+    assert.equal(resMetadata.isInconclusive, true);
+    assert.equal(resMetadata.statusCode, 400);
+    assert.match(resMetadata.reason, /Blocked by SSRF policy/i);
+
+    const resInternalDomain = await probeUrlAvailability('http://metadata.google.internal/computeMetadata/v1/');
+    assert.equal(resInternalDomain.accessible, false);
+    assert.equal(resInternalDomain.isInconclusive, true);
+    assert.equal(resInternalDomain.statusCode, 400);
+    assert.match(resInternalDomain.reason, /Blocked by SSRF policy/i);
+
+    // 3. Unsafe redirects must be blocked on redirect hop
+    const mockRedirectFetcher = {
+      safeFetch: async (url) => {
+        // First hop is public, but returns redirect to loopback
+        if (url === 'https://example.com/job/redirect') {
+          return {
+            ok: false,
+            status: 400,
+            statusText: 'Bad Request - Blocked by SSRF Policy',
+            text: '',
+            finalUrl: 'http://127.0.0.1:8080/secret',
+            headers: new Headers(),
+            redirectCount: 1,
+            error: 'Direct IP "127.0.0.1" falls within a prohibited private or link-local range.'
+          };
+        }
+        return { ok: false, status: 404, statusText: 'Not Found', text: '', finalUrl: url, headers: new Headers(), redirectCount: 0 };
+      }
+    };
+    const resRedirect = await probeUrlAvailability('https://example.com/job/redirect', 8000, mockRedirectFetcher);
+    assert.equal(resRedirect.accessible, false);
+    assert.equal(resRedirect.isInconclusive, true);
+    assert.equal(resRedirect.statusCode, 400);
+    assert.match(resRedirect.reason, /Blocked by SSRF policy/i);
+
+    // 4. Request timeouts must be marked inconclusive without false Stopped
+    const mockTimeoutFetcher = {
+      safeFetch: async (url) => ({
+        ok: false,
+        status: 408,
+        statusText: 'Request Timeout',
+        text: '',
+        finalUrl: url,
+        headers: new Headers(),
+        redirectCount: 0,
+        error: 'Request exceeded timeout limit of 8000ms'
+      })
+    };
+    const resTimeout = await probeUrlAvailability('https://example.com/slow', 8000, mockTimeoutFetcher);
+    assert.equal(resTimeout.accessible, false);
+    assert.equal(resTimeout.isClosed, false);
+    assert.equal(resTimeout.isInconclusive, true);
+    assert.match(resTimeout.reason, /timed out/i);
+
+    // 5. Normal public URLs (mocked) return appropriate active or closed states
+    const mockActiveFetcher = {
+      safeFetch: async (url) => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: '<html><body>Join our AI engineering team! Apply now.</body></html>',
+        finalUrl: url,
+        headers: new Headers(),
+        redirectCount: 0
+      })
+    };
+    const resActive = await probeUrlAvailability('https://example.com/active-job', 8000, mockActiveFetcher);
+    assert.equal(resActive.accessible, true);
+    assert.equal(resActive.statusCode, 200);
+    assert.equal(resActive.reason, null);
+
+    const mockClosedFetcher = {
+      safeFetch: async (url) => ({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        text: '',
+        finalUrl: url,
+        headers: new Headers(),
+        redirectCount: 0
+      })
+    };
+    const resClosed = await probeUrlAvailability('https://example.com/expired-job', 8000, mockClosedFetcher);
+    assert.equal(resClosed.accessible, false);
+    assert.equal(resClosed.isClosed, true);
+    assert.equal(resClosed.statusCode, 404);
   });
 });

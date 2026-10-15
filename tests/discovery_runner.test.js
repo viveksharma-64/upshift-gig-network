@@ -35,6 +35,7 @@ import {
   loadLocalCandidates,
   saveLocalCandidates
 } from '../src/discovery/candidateStore.js';
+import { supabase } from '../src/lib/supabase.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -401,18 +402,31 @@ describe('Discovery Runner & Queue Integration Suite', () => {
       return { ok: false, status: 404 };
     };
 
-    // Set admin role in localStorage for development environment token
-    localStorage.setItem('upshift_role', 'admin');
+    // Authenticated admin session for discovery execution
+    const originalGetSession = supabase.auth.getSession;
+    supabase.auth.getSession = async () => ({
+      data: {
+        session: {
+          access_token: 'admin-jwt-token',
+          expires_at: Math.floor(Date.now() / 1000) + 3600
+        }
+      },
+      error: null
+    });
 
-    const result = await runLiveDiscovery();
-    assert.equal(result.success, true);
-    assert.equal(result.candidates.length, 15);
-    assert.equal(result.counts.newly_saved, 1);
+    try {
+      const result = await runLiveDiscovery();
+      assert.equal(result.success, true);
+      assert.equal(result.candidates.length, 15);
+      assert.equal(result.counts.newly_saved, 1);
 
-    // Check localStorage was updated with the new candidate
-    const cached = loadLocalCandidates();
-    assert.equal(cached.length, 15);
-    assert.ok(cached.find(c => c.id === 'cand_new_live_99'));
+      // Check localStorage was updated with the new candidate
+      const cached = loadLocalCandidates();
+      assert.equal(cached.length, 15);
+      assert.ok(cached.find(c => c.id === 'cand_new_live_99'));
+    } finally {
+      supabase.auth.getSession = originalGetSession;
+    }
   });
 
   // --------------------------------------------------------------------------
@@ -477,24 +491,30 @@ describe('Discovery Runner & Queue Integration Suite', () => {
   });
 
   // --------------------------------------------------------------------------
-  // Requirement 10: Production mode rejects development-only tokens
+  // Requirement 10: Development-only tokens are unconditionally rejected in all environments
   // --------------------------------------------------------------------------
-  test('10. Production mode strictly rejects development-only tokens', async () => {
+  test('10. Development-only tokens are unconditionally rejected in all environments', async () => {
+    // 10a. verifyTokenAndRole with dev-admin-token in development / non-production
+    delete process.env.NODE_ENV;
+    const resDev = await verifyTokenAndRole('dev-admin-token', mockAuth);
+    assert.equal(resDev.valid, false);
+    assert.equal(resDev.statusCode, 401);
+    assert.match(resDev.error, /unauthorized/i);
+
+    // 10b. verifyTokenAndRole with dev-admin-token in production
     process.env.NODE_ENV = 'production';
+    const resProd = await verifyTokenAndRole('dev-admin-token', mockAuth);
+    assert.equal(resProd.valid, false);
+    assert.equal(resProd.statusCode, 401);
+    assert.match(resProd.error, /unauthorized/i);
 
-    // 10a. verifyTokenAndRole with dev-admin-token in production
-    const res = await verifyTokenAndRole('dev-admin-token');
-    assert.equal(res.valid, false);
-    assert.equal(res.statusCode, 401);
-    assert.match(res.error, /forbidden in production/i);
-
-    // 10b. API endpoint with dev-admin-token in production returns 401
+    // 10c. API endpoint with dev-admin-token returns 401
     const http = createMockHttp('POST', { authorization: 'Bearer dev-admin-token' });
     await handleDiscoveryRunRequest(http.req, http.res, {
       repository: repo,
       supabaseClient: mockAuth
     });
     assert.equal(http.getStatusCode(), 401);
-    assert.match(http.getBody().error, /forbidden in production/i);
+    assert.match(http.getBody().error, /unauthorized/i);
   });
 });

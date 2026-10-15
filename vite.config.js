@@ -1,7 +1,7 @@
 import './src/server/config.js';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
-import { handleCandidateApiRequest, handleDiscoveryRunRequest } from './src/server/candidateApiHandler.js';
+import { handleCandidateApiRequest, handleDiscoveryRunRequest, handleJobStatusRequest } from './src/server/candidateApiHandler.js';
 
 function candidateApiPlugin() {
   return {
@@ -25,6 +25,14 @@ function candidateApiPlugin() {
           });
           return;
         }
+        if (parsedUrl.pathname === '/api/discovery/status' || parsedUrl.pathname === '/api/discovery/jobs') {
+          handleJobStatusRequest(req, res).catch(err => {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: err.message }));
+          });
+          return;
+        }
         next();
       });
     }
@@ -32,6 +40,15 @@ function candidateApiPlugin() {
 }
 
 export default defineConfig({
+  server: {
+    cors: false,
+    host: '127.0.0.1',
+    headers: {
+      'X-Frame-Options': 'DENY',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'strict-origin-when-cross-origin'
+    }
+  },
   plugins: [react(), candidateApiPlugin()],
 });
 

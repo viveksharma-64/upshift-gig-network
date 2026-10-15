@@ -329,7 +329,7 @@ export default function Signup() {
                             type="text"
                             name="firstName"
                             required
-                            placeholder="Vivek"
+                            placeholder="John"
                             value={formData.firstName}
                             onChange={handleChange}
                             className="input-box input-iconic"
@@ -342,7 +342,7 @@ export default function Signup() {
                           type="text"
                           name="lastName"
                           required
-                          placeholder="Sharma"
+                          placeholder="Smith"
                           value={formData.lastName}
                           onChange={handleChange}
                           className="input-box"
