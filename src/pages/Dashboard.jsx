@@ -7,6 +7,7 @@ import { exportGigsTo19ColCSV, downloadCSV } from '../discovery/csvExport';
 import { deduplicateGigList, normalizeCanonicalUrl } from '../server/deduplication';
 import { normalizeHtmlToText } from '../discovery/textNormalizer';
 import { loadLocalCandidates, fetchCandidateQueue } from '../discovery/candidateStore';
+import { isSafeHttpUrl, sanitizeHref } from '../discovery/urlValidator';
 
 export { exportGigsTo19ColCSV, downloadCSV };
 
@@ -1231,7 +1232,7 @@ export function LearnerDashboard() {
                             </td>
                             <td style={{ textAlign: 'right' }}>
                               <a
-                                href={app.origin_url}
+                                href={sanitizeHref(app.origin_url, '#')}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="saas-action-link"
@@ -1366,7 +1367,7 @@ export function LearnerDashboard() {
                   Close
                 </button>
                 <a
-                  href={viewingGig.origin_url || 'https://upwork.com'}
+                  href={sanitizeHref(viewingGig.origin_url, 'https://upwork.com')}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => handleRecordApplication(viewingGig)}
@@ -2516,7 +2517,7 @@ export function AdminDashboard() {
                               >
                                 {g.title}
                               </div>
-                              {g.origin_url && (
+                              {g.origin_url && isSafeHttpUrl(g.origin_url) && (
                                 <a
                                   href={g.origin_url}
                                   target="_blank"
@@ -2679,7 +2680,7 @@ export function AdminDashboard() {
                               >
                                 {g.title}
                               </div>
-                              {g.origin_url && (
+                              {g.origin_url && isSafeHttpUrl(g.origin_url) && (
                                 <a
                                   href={g.origin_url}
                                   target="_blank"
@@ -3011,7 +3012,7 @@ export function AdminDashboard() {
                 ID: {viewingGig.external_gig_id || viewingGig.id}
               </span>
               <a
-                href={viewingGig.origin_url || '#'}
+                href={sanitizeHref(viewingGig.origin_url, '#')}
                 target="_blank"
                 rel="noreferrer"
                 className="btn-add-gig"

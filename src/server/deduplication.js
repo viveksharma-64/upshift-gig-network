@@ -12,8 +12,19 @@
  * @param {string} rawUrl
  * @returns {string} canonical URL
  */
+import { isSafeHttpUrl } from '../discovery/urlValidator.js';
+
+/**
+ * Normalizes a URL to its canonical form by stripping marketing tags,
+ * hash fragments, trailing slashes, and sorting query parameters.
+ * Preserves query parameters that materially identify the listing (e.g. job_id, id).
+ * Strictly requires HTTP or HTTPS schemes (rejects javascript:, data:, etc.).
+ *
+ * @param {string} rawUrl
+ * @returns {string} canonical URL, or empty string if invalid or dangerous scheme
+ */
 export function normalizeCanonicalUrl(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  if (!isSafeHttpUrl(rawUrl)) return '';
   try {
     const parsed = new URL(rawUrl.trim());
     parsed.hash = ''; // strip anchors
@@ -43,7 +54,7 @@ export function normalizeCanonicalUrl(rawUrl) {
 
     return parsed.href;
   } catch {
-    return rawUrl.trim().toLowerCase();
+    return '';
   }
 }
 

@@ -212,7 +212,8 @@ test('Backend Intelligence & Reliability Suite', async (t) => {
     const testRepo = new JsonCandidateRepository(TEST_CANDIDATES_FILE);
     const pipeline = new DiscoveryPipeline({
       repository: testRepo,
-      providers: []
+      providers: [],
+      llmService: { hasConfiguredProvider: () => false, evaluate: async () => ({ usedLlm: false }) }
     });
 
     const raw1 = {
@@ -271,7 +272,11 @@ test('Backend Intelligence & Reliability Suite', async (t) => {
   });
 
   await t.test('7. Classifier preserves hybrid cross-track conflicts and routes irrelevant jobs to REJECTED', async () => {
-    const pipeline = new DiscoveryPipeline({ repository: new JsonCandidateRepository() });
+    const pipeline = new DiscoveryPipeline({
+      repository: new JsonCandidateRepository(),
+      providers: [],
+      llmService: { hasConfiguredProvider: () => false, evaluate: async () => ({ usedLlm: false }) }
+    });
 
     // Hybrid role: Fullstack Dev + n8n Automation
     const hybridListing = {

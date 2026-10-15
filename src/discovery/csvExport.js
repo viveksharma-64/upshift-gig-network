@@ -31,9 +31,77 @@ export const FRD_19_CSV_HEADERS = [
 ];
 
 /**
- * Escapes a single field according to RFC 4180 specification:
+ * Neutralizes spreadsheet formula injection (CSV Injection / Formula Injection)
+ * in untrusted fields for export to spreadsheet applications (Excel, LibreOffice, Google Sheets).
+ *
+ * Dangerous triggers include leading '=', '+', '-', '@', '|', '%', as well as
+ * control characters (\t, \r) or whitespace preceding these triggers.
+ *
+ * Ordinary negative or positive numbers (e.g. -5, -12.50, +42, -0.99) are safely preserved
+ * without prepending single quotes to maintain numeric column semantics.
+ *
+ * Mitigation: Prepend single-quote (') prefix per OWASP CSV Injection guidelines.
+ *
+ * Supported Spreadsheet Applications:
+ * - Microsoft Excel: Treats leading single-quote as a text prefix character.
+ * - Google Sheets: Treats leading single-quote as plain text indicator.
+ * - LibreOffice / OpenOffice Calc: Interprets leading single-quote as text formatting.
+ *
+ * Documented Limitation:
+ * Programmatic CSV consumers (e.g. raw Node.js or Python csv readers) will read the leading
+ * single-quote (') as the first character of the parsed string unless stripped downstream.
+ *
+ * @param {any} value - Raw field value
+ * @returns {string} Sanitized string safe for CSV export
+ */
+export function neutralizeFormulaInjection(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  const str = String(value);
+  if (!str) return '';
+
+  // If already neutralized with a leading single quote, do not double-prefix
+  if (str.startsWith("'")) {
+    return str;
+  }
+
+  // Check for leading control characters that spreadsheet engines interpret
+  const hasLeadingControl = /^[\t\r\v\f]/.test(str);
+
+  // Check trimmed content for formula trigger characters: =, @, |, %, +, -
+  const trimmed = str.trimStart();
+  if (trimmed.length === 0) {
+    return str;
+  }
+
+  const firstChar = trimmed[0];
+
+  // Pure numeric check for + or - prefixed values (e.g. -5, +42, -3.14159, -1e4, -10.5)
+  // These are legitimate numbers and do NOT trigger formula execution in spreadsheet software.
+  const isOrdinaryNumber = (firstChar === '+' || firstChar === '-') &&
+    /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(trimmed.trimEnd());
+
+  // Formula trigger characters: =, @, |, % are always neutralized, even if followed by numbers (=1+1)
+  if (hasLeadingControl || firstChar === '=' || firstChar === '@' || firstChar === '|' || firstChar === '%') {
+    return `'${str}`;
+  }
+
+  // For + and -, neutralize only if NOT an ordinary pure number
+  if ((firstChar === '+' || firstChar === '-') && !isOrdinaryNumber) {
+    return `'${str}`;
+  }
+
+  return str;
+}
+
+/**
+ * Escapes a single field according to RFC 4180 specification and neutralizes spreadsheet formula injection:
+ * - Neutralizes spreadsheet formula injection prefixes (=, +, -, @, |, %, control chars).
+ * - Preserves ordinary negative and positive numbers without prepending quotes.
  * - If value contains a comma, double-quote, carriage return, or newline,
- *   enclose the entire field in double quotes and escape internal double quotes by doubling them ("").
+ *   encloses the entire field in double quotes and escapes internal double quotes by doubling them ("").
  * - Returns string representation for primitives, empty string for null/undefined.
  *
  * @param {any} value
@@ -44,15 +112,13 @@ export function escapeRFC4180Field(value) {
     return '';
   }
 
-  const str = typeof value === 'boolean' || typeof value === 'number'
-    ? String(value)
-    : String(value);
+  const neutralized = neutralizeFormulaInjection(value);
 
-  if (/[",\r\n]/.test(str)) {
-    return `"${str.replace(/"/g, '""')}"`;
+  if (/[",\r\n]/.test(neutralized)) {
+    return `"${neutralized.replace(/"/g, '""')}"`;
   }
 
-  return str;
+  return neutralized;
 }
 
 /**

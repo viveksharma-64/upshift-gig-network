@@ -13,6 +13,7 @@ import { CANDIDATE_STATUS, ACTIVITY_STATUS, normalizeActivityStatus } from '../d
 import { getModuleLabel } from '../discovery/modules.js';
 import { exportGigsTo19ColCSV, downloadCSV } from '../discovery/csvExport.js';
 import { normalizeHtmlToText } from '../discovery/textNormalizer.js';
+import { isSafeHttpUrl, sanitizeHref } from '../discovery/urlValidator.js';
 
 export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) {
   const [candidates, setCandidates] = useState(loadLocalCandidates);
@@ -1275,7 +1276,18 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                   </div>
                   <div style={{ fontSize: '12.5px', color: '#334155' }}>
                     <p style={{ margin: '4px 0' }}><strong>Referral ID:</strong> {inspectingCandidate.referral_id || 'None configured'}</p>
-                    <p style={{ margin: '4px 0' }}><strong>Referral URL:</strong> {inspectingCandidate.referral_url ? <a href={inspectingCandidate.referral_url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb' }}>{inspectingCandidate.referral_url}</a> : 'None configured'}</p>
+                    <p style={{ margin: '4px 0' }}>
+                      <strong>Referral URL:</strong>{' '}
+                      {inspectingCandidate.referral_url ? (
+                        isSafeHttpUrl(inspectingCandidate.referral_url) ? (
+                          <a href={inspectingCandidate.referral_url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb' }}>
+                            {inspectingCandidate.referral_url}
+                          </a>
+                        ) : (
+                          <span style={{ color: '#dc2626' }}>[Blocked unsafe URL scheme]</span>
+                        )
+                      ) : 'None configured'}
+                    </p>
                   </div>
                   {Array.isArray(inspectingCandidate.referral_history) && inspectingCandidate.referral_history.length > 0 && (
                     <div style={{ marginTop: '10px', borderTop: '1px dashed #cbd5e1', paddingTop: '8px' }}>
@@ -1306,22 +1318,30 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
 
                 {/* Links */}
                 <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-                  <a
-                    href={inspectingCandidate.application_url || inspectingCandidate.original_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize: '13px', color: '#2563eb', fontWeight: '600', textDecoration: 'none' }}
-                  >
-                    🔗 View Application Link ↗
-                  </a>
-                  <a
-                    href={inspectingCandidate.original_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize: '13px', color: '#6b7280', textDecoration: 'none' }}
-                  >
-                    🌐 Original Listing ↗
-                  </a>
+                  {isSafeHttpUrl(inspectingCandidate.application_url || inspectingCandidate.original_url) ? (
+                    <a
+                      href={inspectingCandidate.application_url || inspectingCandidate.original_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ fontSize: '13px', color: '#2563eb', fontWeight: '600', textDecoration: 'none' }}
+                    >
+                      🔗 View Application Link ↗
+                    </a>
+                  ) : (
+                    <span style={{ fontSize: '13px', color: '#94a3b8' }}>🔗 Application Link (None/Unsafe)</span>
+                  )}
+                  {isSafeHttpUrl(inspectingCandidate.original_url) ? (
+                    <a
+                      href={inspectingCandidate.original_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ fontSize: '13px', color: '#6b7280', textDecoration: 'none' }}
+                    >
+                      🌐 Original Listing ↗
+                    </a>
+                  ) : (
+                    <span style={{ fontSize: '13px', color: '#94a3b8' }}>🌐 Original Listing (None/Unsafe)</span>
+                  )}
                 </div>
 
                 {/* Action Buttons in Modal */}

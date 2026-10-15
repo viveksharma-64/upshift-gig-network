@@ -109,8 +109,11 @@ export async function verifyTokenAndRole(token, client = null) {
 
     const verifiedUser = authData.user;
 
-    // 3. Authoritative retrieval of role from public.profiles table or user metadata
-    let assignedRole = verifiedUser.app_metadata?.role || verifiedUser.user_metadata?.role || null;
+    // 3. Authoritative retrieval of role from public.profiles table or server-controlled app_metadata
+    // CRITICAL SECURITY FIX: Never fall back to user-controlled user_metadata.role.
+    // User metadata can be manipulated by users on sign-up or profile update.
+    // Role MUST come strictly from the authoritative database profiles table or server-managed app_metadata.
+    let assignedRole = verifiedUser.app_metadata?.role || null;
 
     try {
       const { data: profile, error: profError } = await activeClient
@@ -122,7 +125,9 @@ export async function verifyTokenAndRole(token, client = null) {
       if (!profError && profile?.role) {
         assignedRole = profile.role;
       }
-    } catch {}
+    } catch {
+      // Fail closed: database lookup error defaults to least-privilege 'learner'
+    }
 
     const finalRole = assignedRole || 'learner';
 

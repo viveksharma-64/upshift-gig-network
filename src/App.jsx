@@ -25,28 +25,53 @@ export function AuthProvider({ children }) {
 
   const getInitialProfile = () => {
     if (typeof window === 'undefined') return null;
-    const r = localStorage.getItem('upshift_role');
     const u = getInitialUser();
-    if (r && u) return { role: r, full_name: u?.user_metadata?.full_name || '' };
-    return null;
+    if (!u) return null;
+    // CRITICAL SECURITY FIX: Never hydrate 'admin' role from untrusted browser localStorage or user_metadata.
+    // Untrusted client storage can be manipulated by users. Always initialize unverified state as 'learner' (least privilege)
+    // until verified by the server-side database profiles table.
+    return {
+      role: 'learner',
+      full_name: u?.user_metadata?.full_name || '',
+    };
   };
 
   const [user, setUser] = useState(getInitialUser);
   const [profile, setProfile] = useState(getInitialProfile);
-  const [loading, setLoading] = useState(false); // Immediate readiness, verified in background
+  const [roleVerified, setRoleVerified] = useState(false);
+  const [loading, setLoading] = useState(true); // Gated loading state until session & role are verified
 
   // Initialize session from Supabase in background
   useEffect(() => {
+    let isMounted = true;
+
     async function initSession() {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !session?.user) {
+          if (isMounted) {
+            setUser(null);
+            setProfile(null);
+            setRoleVerified(false);
+            setLoading(false);
+            localStorage.removeItem('upshift_user');
+            localStorage.removeItem('upshift_role');
+            localStorage.removeItem('upshift_email');
+          }
+          return;
+        }
+
+        if (isMounted) {
           setUser(session.user);
           localStorage.setItem('upshift_user', JSON.stringify(session.user));
           await loadProfile(session.user);
         }
       } catch (err) {
         console.warn('Supabase session init fallback:', err.message);
+        if (isMounted) {
+          setRoleVerified(false);
+          setLoading(false);
+        }
       }
     }
 
@@ -57,13 +82,18 @@ export function AuthProvider({ children }) {
       if (session?.user) {
         setUser(session.user);
         localStorage.setItem('upshift_user', JSON.stringify(session.user));
+        // Reset role verification until new profile is loaded
+        setRoleVerified(false);
+        setLoading(true);
         // Defer DB call out of the auth lock loop
         setTimeout(() => {
           loadProfile(session.user);
         }, 0);
-      } else if (_event === 'SIGNED_OUT') {
+      } else if (_event === 'SIGNED_OUT' || !session) {
         setUser(null);
         setProfile(null);
+        setRoleVerified(false);
+        setLoading(false);
         localStorage.removeItem('upshift_user');
         localStorage.removeItem('upshift_role');
         localStorage.removeItem('upshift_email');
@@ -71,6 +101,7 @@ export function AuthProvider({ children }) {
     });
 
     return () => {
+      isMounted = false;
       authListener?.subscription?.unsubscribe();
     };
   }, []);
@@ -81,6 +112,8 @@ export function AuthProvider({ children }) {
       role: 'learner',
       full_name: currentUser.user_metadata?.full_name || '',
     };
+    let verified = false;
+
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -88,15 +121,25 @@ export function AuthProvider({ children }) {
         .eq('id', currentUser.id)
         .single();
 
-      if (!error && data) {
+      if (!error && data?.role) {
         p = data;
+        verified = true;
+      } else {
+        // Fail closed: if profile cannot be verified or has no role, force least-privilege learner
+        p.role = 'learner';
+        verified = false;
       }
     } catch (err) {
       console.warn('Error fetching profile:', err);
+      p.role = 'learner';
+      verified = false;
     }
+
     setProfile(p);
+    setRoleVerified(verified);
+    setLoading(false);
     localStorage.setItem('upshift_role', p.role);
-    return p;
+    return { profile: p, verified };
   }
 
   // Sign in with verified database role resolution
@@ -114,6 +157,7 @@ export function AuthProvider({ children }) {
         role: 'learner',
         full_name: data.user.user_metadata?.full_name || '',
       };
+      let verified = false;
 
       try {
         const { data: prof, error: profError } = await supabase
@@ -123,12 +167,15 @@ export function AuthProvider({ children }) {
           .single();
         if (!profError && prof?.role) {
           userProfile = prof;
+          verified = true;
         }
       } catch (e) {
         console.warn('Background profile note:', e);
       }
 
       setProfile(userProfile);
+      setRoleVerified(verified);
+      setLoading(false);
       localStorage.setItem('upshift_role', userProfile.role);
       return { user: data.user, profile: userProfile, error: null };
     } catch (err) {
@@ -164,6 +211,8 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('upshift_email');
     setUser(null);
     setProfile(null);
+    setRoleVerified(false);
+    setLoading(false);
   }
 
   // Reset password
@@ -234,7 +283,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signOut, resetPassword, updateProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, roleVerified, signIn, signUp, signOut, resetPassword, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );
@@ -248,10 +297,11 @@ export function useAuth() {
 // 2. PROTECTED ROUTE (BLOCKS NON-ADMINS FROM ADMIN WORKSPACE)
 // ==========================================
 export function ProtectedRoute({ children, requiredRole }) {
-  const { user, profile, loading, signOut } = useAuth();
+  const { user, profile, loading, roleVerified, signOut } = useAuth();
   const location = useLocation();
 
-  if (loading) {
+  // 1. Loading gate: Never render admin content before authoritative database role verification completes
+  if (loading || (requiredRole === 'admin' && !roleVerified)) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <p style={{ color: '#e31b23', fontWeight: '700' }}>Verifying permissions...</p>
@@ -262,16 +312,17 @@ export function ProtectedRoute({ children, requiredRole }) {
   const storedUser = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('upshift_user') || 'null') : null;
   const activeUser = user || storedUser;
 
-  // 1. Not logged in -> redirect to login
+  // 2. Not logged in -> redirect to login
   if (!activeUser) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Authoritative role evaluation from verified profile (default to 'learner')
-  const verifiedRole = profile?.role || 'learner';
+  // Authoritative role evaluation: require both verified flag AND role === 'admin' from trusted database profile
+  const isAuthorizedAdmin = Boolean(roleVerified && profile?.role === 'admin');
+  const verifiedRole = isAuthorizedAdmin ? 'admin' : 'learner';
 
-  // 2. CRITICAL SECURITY GUARD: Block non-admins from accessing admin workspace
-  if (requiredRole === 'admin' && verifiedRole !== 'admin') {
+  // 3. CRITICAL SECURITY GUARD: Block non-admins from accessing admin workspace
+  if (requiredRole === 'admin' && !isAuthorizedAdmin) {
     // Clean up any stale or manipulated role in localStorage
     if (typeof window !== 'undefined' && localStorage.getItem('upshift_role') === 'admin') {
       localStorage.setItem('upshift_role', verifiedRole);

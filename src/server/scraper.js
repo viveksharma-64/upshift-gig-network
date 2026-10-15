@@ -2,6 +2,8 @@
  * Safe HTML Parser, Metadata Extractor, and Prompt-Injection Defense
  */
 
+import { isSafeHttpUrl } from '../discovery/urlValidator.js';
+
 // Prompt injection patterns commonly found in adversarial web content
 const PROMPT_INJECTION_PATTERNS = [
   /ignore\s+(all\s+)?(previous|prior|above)\s+instructions/gi,
@@ -171,12 +173,15 @@ export function extractGigFields(htmlOrText, sourceUrl = '') {
   if (reqMatch && reqMatch[1]) requirements = reqMatch[1].trim();
 
   // Extract Application URL
-  let application_url = sourceUrl;
+  let application_url = isSafeHttpUrl(sourceUrl) ? sourceUrl : '';
   if (isHtml) {
     const applyLinkMatch = htmlOrText.match(/<a[^>]*href=["']([^"']+)["'][^>]*>(?:apply|apply now|submit application|apply for this job)<\/a>/i);
     if (applyLinkMatch) {
       try {
-        application_url = new URL(applyLinkMatch[1], sourceUrl).href;
+        const resolved = new URL(applyLinkMatch[1], sourceUrl).href;
+        if (isSafeHttpUrl(resolved)) {
+          application_url = resolved;
+        }
       } catch {
         // keep fallback
       }

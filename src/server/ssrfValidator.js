@@ -15,7 +15,11 @@ const BLOCKED_HOSTNAMES = new Set([
   '::1',
   'metadata.google.internal',
   'metadata',
-  'instance-data'
+  'metadata.internal',
+  'metadata.packet.net',
+  'instance-data',
+  'kubernetes.default',
+  'kubernetes.default.svc'
 ]);
 
 const BLOCKED_SUFFIXES = [
@@ -24,7 +28,9 @@ const BLOCKED_SUFFIXES = [
   '.localhost',
   '.lan',
   '.home',
-  '.corp'
+  '.corp',
+  '.intra',
+  '.onion'
 ];
 
 /**
@@ -61,12 +67,18 @@ export function isPrivateIPv4(ip) {
   // 100.64.0.0/10 (Carrier-Grade NAT: 100.64.0.0 – 100.127.255.255)
   if (a === 100 && b >= 64 && b <= 127) return true;
 
-  // 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 (TEST-NET)
+  // 192.0.0.0/24 (IETF Protocol Assignments)
+  if (a === 192 && b === 0 && c === 0) return true;
+
+  // 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 (TEST-NET-1, TEST-NET-2, TEST-NET-3)
   if (a === 192 && b === 0 && c === 2) return true;
   if (a === 198 && b === 51 && c === 100) return true;
   if (a === 203 && b === 0 && c === 113) return true;
 
-  // 224.0.0.0/4 (Multicast) & 240.0.0.0/4 (Reserved)
+  // 198.18.0.0/15 (Network Interconnect Benchmark Testing: 198.18.0.0 - 198.19.255.255)
+  if (a === 198 && (b === 18 || b === 19)) return true;
+
+  // 224.0.0.0/4 (Multicast) & 240.0.0.0/4 (Reserved / Future Use)
   if (a >= 224) return true;
 
   return false;
@@ -78,13 +90,13 @@ export function isPrivateIPv4(ip) {
  * @returns {boolean} true if private/prohibited
  */
 export function isPrivateIPv6(ip) {
-  const norm = ip.toLowerCase().trim();
+  const norm = ip.toLowerCase().trim().replace(/^\[|\]$/g, '');
 
-  // Loopback ::1
-  if (norm === '::1' || norm === '0:0:0:0:0:0:0:1') return true;
+  // Loopback ::1, 0:0:0:0:0:0:0:1, etc.
+  if (norm === '::1' || norm === '0:0:0:0:0:0:0:1' || /^0*(:0*)*:1$/.test(norm)) return true;
 
-  // Unspecified ::
-  if (norm === '::' || norm === '0:0:0:0:0:0:0:0') return true;
+  // Unspecified ::, 0:0:0:0:0:0:0:0
+  if (norm === '::' || norm === '0:0:0:0:0:0:0:0' || /^0*(:0*)+$/.test(norm)) return true;
 
   // Unique local addresses fc00::/7 (fc00:: - fdff::)
   if (norm.startsWith('fc') || norm.startsWith('fd')) return true;
@@ -93,6 +105,12 @@ export function isPrivateIPv6(ip) {
   if (norm.startsWith('fe8') || norm.startsWith('fe9') || norm.startsWith('fea') || norm.startsWith('feb')) {
     return true;
   }
+
+  // Multicast ff00::/8
+  if (norm.startsWith('ff')) return true;
+
+  // Documentation prefix 2001:db8::/32
+  if (norm.startsWith('2001:db8') || norm.startsWith('2001:0db8')) return true;
 
   // IPv4-mapped IPv6 ::ffff:192.0.2.1
   if (norm.includes('::ffff:')) {
@@ -108,14 +126,19 @@ export function isPrivateIPv6(ip) {
 
 /**
  * Validates a target URL against SSRF and protocol hazards.
- * Returns an object with { safe: boolean, error?: string, parsedUrl?: URL }
+ * By default, performs authoritative DNS resolution to guard against DNS rebinding,
+ * private IP resolution, and cloud-metadata addresses.
  *
  * @param {string} rawUrl
- * @param {object} options
- * @param {boolean} [options.resolveDns=false]
- * @returns {Promise<{ safe: boolean, reason?: string, url?: string }>}
+ * @param {object} [options]
+ * @param {boolean} [options.resolveDns=true] - Defaults to true for authoritative DNS checks
+ * @param {Function} [options.dnsLookup] - Optional custom lookup function for testing/injection
+ * @returns {Promise<{ safe: boolean, reason?: string, url?: string, resolvedIps?: string[] }>}
  */
-export async function validateSafeUrl(rawUrl, options = { resolveDns: false }) {
+export async function validateSafeUrl(rawUrl, options = {}) {
+  const resolveDns = options.resolveDns !== undefined ? options.resolveDns : true;
+  const dnsLookup = options.dnsLookup || dns.lookup;
+
   if (!rawUrl || typeof rawUrl !== 'string') {
     return { safe: false, reason: 'URL must be a non-empty string' };
   }
@@ -176,11 +199,17 @@ export async function validateSafeUrl(rawUrl, options = { resolveDns: false }) {
     }
   }
 
-  // 6. Optional DNS resolution check (protection against DNS rebinding)
-  if (options.resolveDns) {
+  // 6. Authoritative DNS resolution check (protection against DNS rebinding & dual-stack bypasses)
+  let resolvedIps = [];
+  if (resolveDns) {
     try {
-      const addresses = await dns.lookup(hostname, { all: true });
+      const addresses = await dnsLookup(hostname, { all: true });
+      if (!addresses || addresses.length === 0) {
+        return { safe: false, reason: `DNS lookup failed for "${hostname}": No address records returned.` };
+      }
+
       for (const addr of addresses) {
+        resolvedIps.push(addr.address);
         if (addr.family === 4 && isPrivateIPv4(addr.address)) {
           return { safe: false, reason: `Domain "${hostname}" resolved to prohibited private IP ${addr.address}.` };
         }
@@ -193,5 +222,5 @@ export async function validateSafeUrl(rawUrl, options = { resolveDns: false }) {
     }
   }
 
-  return { safe: true, url: parsed.href };
+  return { safe: true, url: parsed.href, resolvedIps };
 }

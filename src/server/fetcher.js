@@ -14,6 +14,8 @@ export class ResilientFetcher {
     this.maxRedirects = options.maxRedirects || 5;
     this.minDomainDelayMs = options.minDomainDelayMs || 500; // polite 500ms delay per origin
     this.userAgent = options.userAgent || 'UpShiftGigDiscovery/1.0 (+https://upshift.work/discovery-bot)';
+    this.resolveDns = options.resolveDns !== undefined ? options.resolveDns : true;
+    this.dnsLookup = options.dnsLookup || null;
   }
 
   /**
@@ -38,7 +40,7 @@ export class ResilientFetcher {
   /**
    * Safely fetches a remote URL with full SSRF validation and redirect protection
    * @param {string} targetUrl
-   * @param {RequestInit} [fetchOptions={}]
+   * @param {RequestInit & { resolveDns?: boolean, dnsLookup?: Function }} [fetchOptions={}]
    * @returns {Promise<{ ok: boolean, status: number, statusText: string, text: string, finalUrl: string, headers: Headers, redirectCount: number, error?: string }>}
    */
   async safeFetch(targetUrl, fetchOptions = {}) {
@@ -46,8 +48,11 @@ export class ResilientFetcher {
     let redirectCount = 0;
 
     while (redirectCount <= this.maxRedirects) {
-      // 1. Validate target URL against SSRF policy
-      const validation = await validateSafeUrl(currentUrl);
+      // 1. Validate target URL against SSRF policy with authoritative DNS resolution
+      const validation = await validateSafeUrl(currentUrl, {
+        resolveDns: fetchOptions.resolveDns !== undefined ? fetchOptions.resolveDns : this.resolveDns,
+        dnsLookup: fetchOptions.dnsLookup || this.dnsLookup
+      });
       if (!validation.safe) {
         return {
           ok: false,
