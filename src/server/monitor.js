@@ -169,18 +169,23 @@ export async function runHealthMonitoringCycle(options = {}) {
     notifications_emitted: 0
   };
 
-  // 1. Check Opportunity Candidates (Active & Approved)
+  // 1. Check Opportunity Candidates (Active & Approved, or Stopped/Paused for safe re-verification)
   const candidates = await repository.getAll();
   const candidatesToCheck = candidates
     .filter(c => {
       const act = normalizeActivityStatus(c.activity_status);
-      return act === ACTIVITY_STATUS.ACTIVE || c.status === CANDIDATE_STATUS.APPROVED;
+      return act === ACTIVITY_STATUS.ACTIVE ||
+        act === ACTIVITY_STATUS.PAUSED ||
+        act === ACTIVITY_STATUS.STOPPED ||
+        c.status === CANDIDATE_STATUS.APPROVED ||
+        c.status === CANDIDATE_STATUS.PAUSED ||
+        c.status === CANDIDATE_STATUS.STOPPED;
     })
     .slice(0, maxCheck);
 
   for (const cand of candidatesToCheck) {
     results.candidates_checked++;
-    const targetUrl = cand.application_url || cand.original_url;
+    const targetUrl = cand.application_url || cand.canonical_url || cand.original_url;
 
     // Skip local fixture listings from external network probes
     if (!targetUrl || targetUrl.startsWith('local://')) {
@@ -228,7 +233,7 @@ export async function runHealthMonitoringCycle(options = {}) {
         // If this candidate was published to public.gigs, update the live gig record in place
         if (cand.published_gig_id) {
           try {
-            const client = getServerSupabaseClient();
+            const client = liveGigsClient || getServerSupabaseClient();
             if (client) {
               await client.from('gigs').update({
                 status: gigTableStatus,
@@ -254,18 +259,60 @@ export async function runHealthMonitoringCycle(options = {}) {
       if (!dryRun) {
         cand.last_health_check_at = now;
         cand.health_check_error = null;
-        cand.activity_status = ACTIVITY_STATUS.ACTIVE;
+
+        const isCurrentlyStopped =
+          cand.status === CANDIDATE_STATUS.STOPPED ||
+          cand.activity_status === ACTIVITY_STATUS.STOPPED;
+
+        const isCurrentlyPaused =
+          cand.status === CANDIDATE_STATUS.PAUSED ||
+          cand.activity_status === ACTIVITY_STATUS.PAUSED;
+
+        if (isCurrentlyStopped) {
+          // CRITICAL SAFEGUARD (Requirement 4):
+          // A candidate or live gig marked Stopped must NEVER automatically return to Active.
+          // Route to Needs Review / Needs Recheck for manual administrator confirmation.
+          cand.activity_status = ACTIVITY_STATUS.NEEDS_REVIEW;
+          cand.status = CANDIDATE_STATUS.NEEDS_RECHECK;
+        } else if (isCurrentlyPaused) {
+          cand.activity_status = ACTIVITY_STATUS.NEEDS_REVIEW;
+          cand.status = CANDIDATE_STATUS.NEEDS_RECHECK;
+        } else {
+          cand.activity_status = ACTIVITY_STATUS.ACTIVE;
+        }
+
         await repository.save(cand);
 
-        // Keep published gig active if verified
+        // Keep published gig updated safely without ever auto-republishing a stopped gig
         if (cand.published_gig_id) {
           try {
-            const client = getServerSupabaseClient();
+            const client = liveGigsClient || getServerSupabaseClient();
             if (client) {
-              await client.from('gigs').update({
-                status: 'Active',
-                updated_at: now
-              }).eq('id', cand.published_gig_id);
+              const { data: liveGig } = await client
+                .from('gigs')
+                .select('status')
+                .eq('id', cand.published_gig_id)
+                .single();
+
+              if (liveGig) {
+                if (liveGig.status === 'Stopped' || isCurrentlyStopped) {
+                  // Never automatically set a stopped gig back to Active
+                  await client.from('gigs').update({
+                    status: 'Needs Review',
+                    updated_at: now
+                  }).eq('id', cand.published_gig_id);
+                } else if (liveGig.status === 'Paused' || isCurrentlyPaused) {
+                  await client.from('gigs').update({
+                    status: 'Needs Review',
+                    updated_at: now
+                  }).eq('id', cand.published_gig_id);
+                } else if (liveGig.status !== 'Active') {
+                  await client.from('gigs').update({
+                    status: 'Active',
+                    updated_at: now
+                  }).eq('id', cand.published_gig_id);
+                }
+              }
             }
           } catch {}
         }

@@ -26,6 +26,79 @@ const DATA_FILE = path.join(DATA_DIR, 'candidates.json');
 /** Canonical staging table name across migrations, repository, and UI */
 export const GIG_CANDIDATES_TABLE = 'gig_candidates';
 
+/** Canonical list of all intended persistent columns in public.gig_candidates */
+export const CANDIDATE_DB_COLUMNS = Object.freeze([
+  'id',
+  'source_name',
+  'source_type',
+  'source_listing_id',
+  'original_url',
+  'canonical_url',
+  'application_url',
+  'title',
+  'organization',
+  'description',
+  'responsibilities',
+  'requirements',
+  'payment_amount',
+  'min_amount',
+  'max_amount',
+  'currency',
+  'compensation_type',
+  'location',
+  'work_arrangement',
+  'posted_date',
+  'deadline',
+  'first_discovered_at',
+  'last_checked_at',
+  'track_id',
+  'matched_modules',
+  'module_fit_scores',
+  'module_evidence',
+  'activity_status',
+  'activity_confidence',
+  'activity_evidence',
+  'activity_reason',
+  'module_fit_score',
+  'source_reliability',
+  'data_completeness',
+  'review_priority',
+  'duplicate_cluster_id',
+  'is_duplicate',
+  'duplicate_of',
+  'llm_provider',
+  'llm_model',
+  'llm_evaluation',
+  'referral_id',
+  'referral_url',
+  'referral_required',
+  'referral_history',
+  'last_health_check_at',
+  'health_check_error',
+  'status',
+  'admin_notes',
+  'rejection_reason',
+  'reviewed_by',
+  'reviewed_at',
+  'published_gig_id',
+  'updated_at'
+]);
+
+/**
+ * Non-breaking, optional extension columns that may be omitted during an upsert
+ * if the remote database has not yet applied the latest schema migration.
+ * Core listing fields (id, title, source_name, organization, track_id, status, etc.)
+ * must NEVER be omitted, and will fail fast with an actionable error.
+ */
+export const OPTIONAL_COMPATIBILITY_COLUMNS = Object.freeze(new Set([
+  'health_check_error',
+  'last_health_check_at',
+  'referral_id',
+  'referral_url',
+  'referral_required',
+  'referral_history'
+]));
+
 /**
  * Initializes a secure server-side Supabase client.
  * Uses SUPABASE_SERVICE_ROLE_KEY if available on the server runtime,
@@ -214,10 +287,21 @@ export class SupabaseCandidateRepository {
     let existingMap = new Map();
 
     try {
-      const { data: existingRows } = await this.client
+      const preferredCols = 'id, status, admin_notes, rejection_reason, reviewed_by, reviewed_at, published_gig_id, first_discovered_at, referral_id, referral_url, referral_required, referral_history, llm_provider, llm_model, llm_evaluation';
+      let { data: existingRows, error: selectErr } = await this.client
         .from(this.tableName)
-        .select('id, status, admin_notes, rejection_reason, reviewed_by, reviewed_at, published_gig_id, first_discovered_at, referral_id, referral_url, referral_required, referral_history, llm_provider, llm_model, llm_evaluation')
+        .select(preferredCols)
         .in('id', ids);
+
+      if (selectErr && /Could not find the '([^']+)' column of 'gig_candidates' in the schema cache/i.test(selectErr.message)) {
+        // Fallback to core columns if newly added columns are not yet in the schema cache
+        const coreCols = 'id, status, admin_notes, rejection_reason, reviewed_by, reviewed_at, published_gig_id, first_discovered_at, llm_provider, llm_model, llm_evaluation';
+        const fallbackRes = await this.client
+          .from(this.tableName)
+          .select(coreCols)
+          .in('id', ids);
+        existingRows = fallbackRes.data;
+      }
 
       if (Array.isArray(existingRows)) {
         existingMap = new Map(existingRows.map(r => [r.id, r]));
@@ -268,9 +352,43 @@ export class SupabaseCandidateRepository {
       }
     }
 
-    const { error: upsertErr } = await this.client
+    let records = recordsToUpsert;
+    let { error: upsertErr } = await this.client
       .from(this.tableName)
-      .upsert(recordsToUpsert, { onConflict: 'id' });
+      .upsert(records, { onConflict: 'id' });
+
+    // Defensive schema cache recovery:
+    // Only non-breaking, optional extension columns (OPTIONAL_COMPATIBILITY_COLUMNS)
+    // may be omitted during an upsert if the database has not yet applied the latest migration.
+    // Required and core listing fields (id, title, organization, status, track_id, etc.)
+    // MUST NEVER be discarded, and will fail fast with an actionable error.
+    const omittedColumns = new Set();
+    while (upsertErr && /Could not find the '([^']+)' column of '[^']+' in the schema cache/i.test(upsertErr.message)) {
+      const match = upsertErr.message.match(/Could not find the '([^']+)' column of '[^']+' in the schema cache/i);
+      const missingColumn = match ? match[1] : null;
+      if (!missingColumn || omittedColumns.has(missingColumn)) break;
+
+      // Refuse to silently discard any required or core listing column
+      if (!OPTIONAL_COMPATIBILITY_COLUMNS.has(missingColumn)) {
+        throw new Error(
+          `[SupabaseCandidateRepository] Upsert failed: Required column '${missingColumn}' is missing from '${this.tableName}' schema cache. Refusing to omit required data. Apply pending database migrations.`
+        );
+      }
+
+      omittedColumns.add(missingColumn);
+      console.warn(`[SupabaseCandidateRepository] Schema cache notice: Optional extension column '${missingColumn}' not found in database. Retrying upsert without this optional field. Run migration 20261015000001_gig_candidates_health_and_referrals.sql to persist this field.`);
+
+      records = records.map(row => {
+        const copy = { ...row };
+        delete copy[missingColumn];
+        return copy;
+      });
+
+      const retryResult = await this.client
+        .from(this.tableName)
+        .upsert(records, { onConflict: 'id' });
+      upsertErr = retryResult.error;
+    }
 
     if (upsertErr) {
       throw new Error(`[SupabaseCandidateRepository] Upsert failed: ${upsertErr.message}`);
@@ -284,7 +402,11 @@ export class SupabaseCandidateRepository {
       if (typeof count === 'number') total = count;
     } catch {}
 
-    return { inserted, updated, total };
+    const result = { inserted, updated, total };
+    if (omittedColumns.size > 0) {
+      result.omittedColumns = Array.from(omittedColumns);
+    }
+    return result;
   }
 
   /**

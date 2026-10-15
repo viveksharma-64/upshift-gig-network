@@ -141,8 +141,8 @@ export async function onRequestGet(context) {
     const lastDiscovery = jobs.find(j => j.job_type === 'discovery') || null;
     const lastHealthCheck = jobs.find(j => j.job_type === 'health_check') || null;
 
-    // Published gigs counts
-    const gigsRes = await fetch(`${supabaseUrl}/rest/v1/gigs?select=status`, {
+    // Published gigs counts (reconciled and deduplicated against public.gigs)
+    const gigsRes = await fetch(`${supabaseUrl}/rest/v1/gigs?select=id,title,organization,external_gig_id,canonical_url,origin_url,application_url,status`, {
       headers: {
         'Authorization': `Bearer ${serviceKey}`,
         'apikey': serviceKey
@@ -150,14 +150,28 @@ export async function onRequestGet(context) {
     });
     const gigs = gigsRes.ok ? await gigsRes.json() : [];
 
-    const counts = { active: 0, paused: 0, stopped: 0, needs_review: 0 };
+    const counts = { active: 0, paused: 0, stopped: 0, needs_review: 0, total: 0 };
     if (Array.isArray(gigs)) {
+      // Deduplicate using consistent canonical URL, external ID, and title keys
+      const seen = new Set();
+      const uniqueGigs = [];
       for (const g of gigs) {
+        if (!g || g.is_duplicate) continue;
+        const key = (g.external_gig_id || g.origin_url || g.canonical_url || g.application_url || g.id || '').trim().toLowerCase();
+        const titleKey = (g.title || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const composite = key ? `${key}__${titleKey}` : titleKey;
+        if (composite && seen.has(composite)) continue;
+        if (composite) seen.add(composite);
+        uniqueGigs.push(g);
+      }
+
+      counts.total = uniqueGigs.length;
+      for (const g of uniqueGigs) {
         const st = (g.status || 'Active').toLowerCase();
         if (st === 'active') counts.active++;
         else if (st === 'paused') counts.paused++;
         else if (st === 'stopped') counts.stopped++;
-        else if (st.includes('review')) counts.needs_review++;
+        else if (st.includes('review') || st === 'needs_review') counts.needs_review++;
       }
     }
 

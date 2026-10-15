@@ -46,7 +46,12 @@ import {
 import { onRequestGet as handleCloudflareStatusGet } from '../functions/api/discovery/status.js';
 import { onRequestPost as handleCloudflareRunPost } from '../functions/api/discovery/run.js';
 import { DiscoveryPipeline } from '../src/server/pipeline.js';
-import { JsonCandidateRepository, SupabaseCandidateRepository } from '../src/server/candidateRepository.js';
+import {
+  JsonCandidateRepository,
+  SupabaseCandidateRepository,
+  formatCandidateForDb,
+  CANDIDATE_DB_COLUMNS
+} from '../src/server/candidateRepository.js';
 import { CANDIDATE_STATUS, ACTIVITY_STATUS } from '../src/discovery/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -744,5 +749,305 @@ test('Production Architecture & Scheduled Automation Suite', async (t) => {
     assert.equal(claimedA.id, jobA.id);
     assert.equal(claimedA.claimed_by, 'worker-node-fifo');
   });
+
+  await t.test('19. Proposed migration 20261015000001 defines health check and referral columns and updates check constraints idempotently', () => {
+    const migrationFile = path.resolve(__dirname, '../supabase/migrations/20261015000001_gig_candidates_health_and_referrals.sql');
+    assert.ok(fs.existsSync(migrationFile), '20261015000001_gig_candidates_health_and_referrals.sql migration must exist');
+    const sql = fs.readFileSync(migrationFile, 'utf8');
+
+    // 1. Column additions must be idempotent (ADD COLUMN IF NOT EXISTS)
+    assert.ok(sql.includes('alter table public.gig_candidates add column if not exists health_check_error text'), 'Must add health_check_error column');
+    assert.ok(sql.includes('alter table public.gig_candidates add column if not exists last_health_check_at timestamptz'), 'Must add last_health_check_at column');
+    assert.ok(sql.includes('alter table public.gig_candidates add column if not exists referral_id text'), 'Must add referral_id column');
+    assert.ok(sql.includes('alter table public.gig_candidates add column if not exists referral_url text'), 'Must add referral_url column');
+    assert.ok(sql.includes('alter table public.gig_candidates add column if not exists referral_required boolean'), 'Must add referral_required column');
+    assert.ok(sql.includes('alter table public.gig_candidates add column if not exists referral_history jsonb'), 'Must add referral_history column');
+
+    // 2. Lifecycle status check constraint must permit paused and stopped
+    assert.ok(sql.includes('alter table public.gig_candidates drop constraint if exists gig_candidates_status_check'), 'Must drop existing status check constraint idempotently');
+    assert.ok(sql.includes("'paused', 'stopped'"), 'Status check constraint must include paused and stopped');
+
+    // 3. Activity status check constraint must support canonical FRD formats
+    assert.ok(sql.includes('alter table public.gig_candidates drop constraint if exists gig_candidates_activity_status_check'), 'Must drop existing activity status check constraint idempotently');
+    assert.ok(sql.includes("'Active', 'Uncertain', 'Inactive', 'Paused', 'Stopped', 'Needs Review'"), 'Activity status check constraint must include canonical FRD statuses');
+
+    // 4. Performance indexes and PostgREST reload signal
+    assert.ok(sql.includes('create index if not exists idx_gig_candidates_health_check'), 'Must create index on last_health_check_at');
+    assert.ok(sql.includes('create index if not exists idx_gig_candidates_referral'), 'Must create index on referral_id');
+    assert.ok(sql.includes("notify pgrst, 'reload schema'"), 'Must notify PostgREST to reload schema cache');
+  });
+
+  await t.test('20. Schema contract parity: formatCandidateForDb payload strictly matches intended database schema', () => {
+    // Read original staging migration + additive migration
+    const baseMigration = fs.readFileSync(path.resolve(__dirname, '../supabase/migrations/20261012000001_gig_candidates_staging.sql'), 'utf8');
+    const extMigration = fs.readFileSync(path.resolve(__dirname, '../supabase/migrations/20261015000001_gig_candidates_health_and_referrals.sql'), 'utf8');
+    const cumulativeSql = baseMigration + '\n' + extMigration;
+
+    // Test candidate record formatted for DB
+    const dummyCandidate = {
+      id: 'cand-test-parity-001',
+      title: 'Parity Engineer',
+      organization: 'UpShift',
+      original_url: 'https://example.com/job/parity-1',
+      track_id: 'M3',
+      health_check_error: 'Connection timeout after 10000ms',
+      last_health_check_at: '2026-10-15T08:00:00Z',
+      referral_id: 'REF-UPSHIFT-01',
+      referral_url: 'https://example.com/ref/01',
+      referral_required: true,
+      referral_history: [{ date: '2026-10-15', editor: 'admin', change: 'set referral' }]
+    };
+
+    const formatted = formatCandidateForDb(dummyCandidate);
+    const formattedKeys = Object.keys(formatted);
+
+    // 1. Verify every key in CANDIDATE_DB_COLUMNS is produced by formatCandidateForDb
+    for (const col of CANDIDATE_DB_COLUMNS) {
+      assert.ok(formattedKeys.includes(col), `formatCandidateForDb must produce column: ${col}`);
+    }
+
+    // 2. Verify no unexpected/unmapped keys are produced
+    for (const key of formattedKeys) {
+      assert.ok(CANDIDATE_DB_COLUMNS.includes(key), `formatCandidateForDb produced unlisted column: ${key}`);
+    }
+
+    // 3. Verify every key is declared in the cumulative schema
+    for (const col of CANDIDATE_DB_COLUMNS) {
+      const colRegex = new RegExp(`\\b${col}\\b`, 'i');
+      assert.ok(
+        colRegex.test(cumulativeSql),
+        `Intended schema migrations must define column: ${col}`
+      );
+    }
+  });
+
+  await t.test('21. SupabaseCandidateRepository handles schema cache mismatches gracefully and persists health check errors', async () => {
+    // Simulate PostgREST table with schema cache reporting missing column on first attempt
+    let upsertAttempts = 0;
+    const mockStore = new Map();
+
+    const mockClient = {
+      from(table) {
+        assert.equal(table, 'gig_candidates');
+        return {
+          select(cols) {
+            return {
+              in(field, values) {
+                return Promise.resolve({ data: [], error: null });
+              }
+            };
+          },
+          upsert(records, options) {
+            upsertAttempts++;
+            // Simulate PostgREST error on first attempt: health_check_error column missing in cache
+            if (upsertAttempts === 1) {
+              return Promise.resolve({
+                data: null,
+                error: { message: "Could not find the 'health_check_error' column of 'gig_candidates' in the schema cache" }
+              });
+            }
+            // Second attempt after stripping missing column succeeds
+            for (const r of records) {
+              mockStore.set(r.id, r);
+            }
+            return Promise.resolve({ data: records, error: null });
+          }
+        };
+      }
+    };
+
+    const repo = new SupabaseCandidateRepository(mockClient);
+    const testListing = {
+      id: 'cand-graceful-001',
+      title: 'Graceful Degradation Specialist',
+      source_name: 'test_provider',
+      track_id: 'M3',
+      health_check_error: 'HTTP 404 Not Found'
+    };
+
+    // saveBatch should catch the missing optional column error, omit it, report it honestly, and succeed on retry
+    const res = await repo.saveBatch([testListing]);
+    assert.equal(res.inserted, 1);
+    assert.equal(upsertAttempts, 2, 'Should have retried upsert after peeling off unmapped column');
+    assert.deepEqual(res.omittedColumns, ['health_check_error'], 'Must honestly report omitted optional columns');
+    const saved = mockStore.get('cand-graceful-001');
+    assert.ok(saved, 'Candidate must be saved');
+    assert.equal(saved.title, 'Graceful Degradation Specialist');
+    assert.equal(saved.health_check_error, undefined, 'Missing column was safely omitted on retry');
+
+    // 2. Refuses to discard required/core fields: throws clear actionable error without silent data loss
+    const brokenClient = {
+      from(table) {
+        return {
+          select() {
+            return { in: () => Promise.resolve({ data: [], error: null }) };
+          },
+          upsert() {
+            return Promise.resolve({
+              data: null,
+              error: { message: "Could not find the 'title' column of 'gig_candidates' in the schema cache" }
+            });
+          }
+        };
+      }
+    };
+    const strictRepo = new SupabaseCandidateRepository(brokenClient);
+    await assert.rejects(
+      async () => {
+        await strictRepo.saveBatch([{ id: 'cand-req-001', title: 'Must not be dropped' }]);
+      },
+      /Required column 'title' is missing from 'gig_candidates' schema cache\. Refusing to omit required data/,
+      'Must reject and throw when a required column is missing'
+    );
+  });
+
+  await t.test('22. Health monitoring never automatically republishes a stopped gig or candidate to Active', async () => {
+    const mockGigsTable = [
+      {
+        id: 'gig-stopped-001',
+        title: 'Closed AI Researcher',
+        status: 'Stopped',
+        origin_url: 'https://example.com/careers'
+      }
+    ];
+
+    const mockLiveClient = {
+      from: (tableName) => {
+        assert.equal(tableName, 'gigs');
+        return {
+          select: (cols) => ({
+            eq: (field, val) => ({
+              single: async () => {
+                const found = mockGigsTable.find(g => g.id === val);
+                return { data: found || null, error: null };
+              }
+            })
+          }),
+          update: (fields) => ({
+            eq: async (field, val) => {
+              const idx = mockGigsTable.findIndex(g => g.id === val);
+              if (idx !== -1) {
+                mockGigsTable[idx] = { ...mockGigsTable[idx], ...fields };
+              }
+              return { error: null };
+            }
+          })
+        };
+      }
+    };
+
+    let savedCandidate = null;
+    const mockRepo = {
+      getAll: async () => [
+        {
+          id: 'cand-stopped-001',
+          title: 'Closed AI Researcher',
+          status: CANDIDATE_STATUS.STOPPED,
+          activity_status: ACTIVITY_STATUS.STOPPED,
+          canonical_url: 'https://example.com/careers',
+          published_gig_id: 'gig-stopped-001'
+        }
+      ],
+      save: async (cand) => {
+        savedCandidate = cand;
+        return { inserted: 0, updated: 1, total: 1 };
+      }
+    };
+
+    // Probe returns accessible (HTTP 200 - generic careers page reachable)
+    const mockProbe = async () => ({
+      accessible: true,
+      statusCode: 200,
+      reason: null
+    });
+
+    const summary = await runHealthMonitoringCycle({
+      repository: mockRepo,
+      sourceRegistry: { init: async () => {}, getAllSources: () => [], save: async () => {} },
+      probeFn: mockProbe,
+      liveGigsClient: mockLiveClient,
+      checkLiveGigs: false
+    });
+
+    assert.equal(summary.candidates_healthy, 1);
+    // Crucial: Candidate was NOT automatically marked Active!
+    assert.equal(savedCandidate.status, CANDIDATE_STATUS.NEEDS_RECHECK, 'Stopped candidate must transition to needs_recheck');
+    assert.equal(savedCandidate.activity_status, ACTIVITY_STATUS.NEEDS_REVIEW, 'Stopped candidate activity must be Needs Review, never Active');
+
+    // Crucial: Live published gig was NOT automatically marked Active!
+    assert.equal(mockGigsTable[0].status, 'Needs Review', 'Stopped live gig must transition to Needs Review for admin investigation, never auto-republished to Active');
+  });
+
+  await t.test('23. Production runner claims targeted admin-triggered jobs in Supabase client mode', async () => {
+    let claimedTargetId = null;
+    let claimedWorker = null;
+
+    const mockSupabase = {
+      from(table) {
+        assert.equal(table, 'discovery_jobs');
+        return {
+          update(updates) {
+            return {
+              eq(field, val) {
+                claimedTargetId = val;
+                claimedWorker = updates.claimed_by;
+                return {
+                  or: () => ({
+                    select: () => ({
+                      single: async () => ({
+                        data: {
+                          id: val,
+                          status: JOB_STATUS.RUNNING,
+                          claimed_by: updates.claimed_by,
+                          params: { source: 'api', limit: 25 }
+                        },
+                        error: null
+                      })
+                    })
+                  })
+                };
+              }
+            };
+          }
+        };
+      }
+    };
+
+    const jm = new JobManager({ client: mockSupabase });
+    const claimed = await jm.claimJob('worker-prod-runner-01', 'job_admin_999');
+
+    assert.ok(claimed, 'Must claim targeted admin job');
+    assert.equal(claimed.id, 'job_admin_999');
+    assert.equal(claimedTargetId, 'job_admin_999', 'Database update must target the exact job ID');
+    assert.equal(claimedWorker, 'worker-prod-runner-01', 'Must record claiming worker ID');
+  });
+
+  await t.test('24. Observability UI contract: Published Gigs Status card removed, clean text names, and two-column balanced layout', () => {
+    const queueSrc = fs.readFileSync(path.resolve(__dirname, '../src/pages/CandidateReviewQueue.jsx'), 'utf8');
+    const dashboardSrc = fs.readFileSync(path.resolve(__dirname, '../src/pages/Dashboard.jsx'), 'utf8');
+
+    // 1. Published Gigs Status card removed from CandidateReviewQueue
+    assert.equal(queueSrc.includes('📊 Published Gigs Status'), false, 'Published Gigs Status card must be removed from observability panel');
+    assert.equal(queueSrc.includes('published_gig_metrics?.active'), false, 'CandidateReviewQueue must not render published_gig_metrics badges');
+
+    // 2. Renamed to Automatic Gig Discovery with clean readable text
+    assert.ok(queueSrc.includes('⚡ Automatic Gig Discovery'), 'Must display "⚡ Automatic Gig Discovery"');
+    assert.equal(queueSrc.includes('⚡ Ingestion Discovery Cycle'), false, 'Old name "Ingestion Discovery Cycle" must be replaced');
+
+    // 3. Renamed to Opportunity Health Monitor with clean readable text
+    assert.ok(queueSrc.includes('🩺 Opportunity Health Monitor'), 'Must display "🩺 Opportunity Health Monitor"');
+    assert.equal(queueSrc.includes('🩺 Daily Opportunity Health'), false, 'Old name "Daily Opportunity Health" must be replaced');
+
+    // 4. No HTML entity leakage in schedule card titles
+    assert.equal(/&#x[0-9a-fA-F]+;|&#\d+;|&nbsp;/i.test(queueSrc.slice(queueSrc.indexOf('operational-status-card'), queueSrc.indexOf('operational-status-card') + 2000)), false, 'Observability cards must not contain raw HTML entities');
+
+    // 5. Grid layout uses balanced repeat(auto-fit, minmax(280px, 1fr))
+    assert.ok(queueSrc.includes("gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))'"), 'Grid must use minmax(280px, 1fr) so two cards fill width evenly on desktop and stack on mobile');
+
+    // 6. Published Gigs page and sidebar count in Dashboard.jsx are preserved intact
+    assert.ok(dashboardSrc.includes('Published Gigs'), 'Published Gigs section in Dashboard must be preserved');
+    assert.ok(dashboardSrc.includes('totalPublishedGigsCount'), 'Published Gigs sidebar count must be preserved');
+  });
 });
+
 

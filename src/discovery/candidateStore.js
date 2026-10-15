@@ -138,8 +138,35 @@ export async function fetchCandidateQueue(options = {}) {
         const { headers } = await getAdminAuthHeader();
 
         const response = await fetch('/api/candidates', { headers });
+        const contentType = (response.headers && response.headers.get('content-type')) || '';
+
+        // Safe non-JSON guard: If server returns HTML (SPA rewrite fallback or proxy error),
+        // do not attempt response.json() which throws SyntaxError.
+        if (contentType && !contentType.includes('application/json')) {
+          const local = loadLocalCandidates();
+          local.syncSuccess = false;
+          local.syncStatus = 'warning';
+          local.syncSource = 'local_fallback';
+          local.statusCode = response.status;
+          local.syncMessage = `Remote candidate endpoint returned non-JSON response (${contentType.split(';')[0] || 'text/html'}). Preserved ${local.length} existing candidate listings.`;
+          local.isFallback = true;
+          return local;
+        }
+
         if (response.ok) {
-          const data = await response.json();
+          let data = null;
+          try {
+            data = await response.json();
+          } catch (jsonErr) {
+            const local = loadLocalCandidates();
+            local.syncSuccess = false;
+            local.syncStatus = 'warning';
+            local.syncSource = 'local_fallback';
+            local.syncMessage = `Remote candidate endpoint returned invalid JSON (${jsonErr.message}). Preserved ${local.length} existing candidate listings.`;
+            local.isFallback = true;
+            return local;
+          }
+
           const candidateList = Array.isArray(data)
             ? data
             : (Array.isArray(data?.candidates)
@@ -165,10 +192,12 @@ export async function fetchCandidateQueue(options = {}) {
           }
         } else if (response.status === 401) {
           let errDetail = 'Administrator authentication required.';
-          try {
-            const errJson = await response.json();
-            if (errJson.error) errDetail = errJson.error;
-          } catch {}
+          if (contentType.includes('application/json')) {
+            try {
+              const errJson = await response.json();
+              if (errJson.error) errDetail = errJson.error;
+            } catch {}
+          }
           const local = loadLocalCandidates();
           local.syncSuccess = false;
           local.syncStatus = 'warning';
@@ -179,10 +208,12 @@ export async function fetchCandidateQueue(options = {}) {
           return local;
         } else if (response.status === 403) {
           let errDetail = 'Insufficient privileges.';
-          try {
-            const errJson = await response.json();
-            if (errJson.error) errDetail = errJson.error;
-          } catch {}
+          if (contentType.includes('application/json')) {
+            try {
+              const errJson = await response.json();
+              if (errJson.error) errDetail = errJson.error;
+            } catch {}
+          }
           const local = loadLocalCandidates();
           local.syncSuccess = false;
           local.syncStatus = 'warning';
@@ -192,12 +223,19 @@ export async function fetchCandidateQueue(options = {}) {
           local.isFallback = true;
           return local;
         } else {
+          let errDetail = '';
+          if (contentType.includes('application/json')) {
+            try {
+              const errJson = await response.json();
+              if (errJson.error) errDetail = `: ${errJson.error}`;
+            } catch {}
+          }
           const local = loadLocalCandidates();
           local.syncSuccess = false;
           local.syncStatus = 'error';
           local.syncSource = 'local_fallback';
           local.statusCode = response.status;
-          local.syncMessage = `Remote candidate store returned error HTTP ${response.status}. Preserved ${local.length} existing candidate listings.`;
+          local.syncMessage = `Remote candidate store returned error HTTP ${response.status}${errDetail}. Preserved ${local.length} existing candidate listings.`;
           local.isFallback = true;
           return local;
         }
@@ -750,7 +788,7 @@ export async function fetchOperationalStatus() {
         description: 'Automated candidate discovery across permitted feeds and APIs'
       }
     },
-    published_gig_metrics: { active: 0, paused: 0, stopped: 0, needs_review: 0 }
+    published_gig_metrics: { active: 0, paused: 0, stopped: 0, needs_review: 0, total: 0 }
   };
 
   if (typeof fetch !== 'function') return fallback;
@@ -759,23 +797,34 @@ export async function fetchOperationalStatus() {
     const { headers, hasToken } = await getAdminAuthHeader();
     if (hasToken) {
       const res = await fetch('/api/discovery/status', { headers });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) return data;
+      const ct = (res.headers && res.headers.get('content-type')) || '';
+      if (res.ok && (!ct || ct.includes('application/json'))) {
+        try {
+          const data = await res.json();
+          if (data.success) {
+            if (data.published_gig_metrics && typeof data.published_gig_metrics.total !== 'number') {
+              const m = data.published_gig_metrics;
+              m.total = (m.active || 0) + (m.paused || 0) + (m.stopped || 0) + (m.needs_review || 0);
+            }
+            return data;
+          }
+        } catch {}
       }
     }
   } catch {}
 
   // Direct Supabase fallback for metrics if API route unavailable
   try {
-    const { data: gigs } = await supabase.from('gigs').select('status');
+    const { data: gigs } = await supabase.from('gigs').select('*');
     if (Array.isArray(gigs)) {
-      for (const g of gigs) {
+      const unique = deduplicateGigList(gigs);
+      fallback.published_gig_metrics.total = unique.length;
+      for (const g of unique) {
         const st = (g.status || 'Active').toLowerCase();
         if (st === 'active') fallback.published_gig_metrics.active++;
         else if (st === 'paused') fallback.published_gig_metrics.paused++;
         else if (st === 'stopped') fallback.published_gig_metrics.stopped++;
-        else if (st.includes('review')) fallback.published_gig_metrics.needs_review++;
+        else if (st.includes('review') || st === 'needs_review') fallback.published_gig_metrics.needs_review++;
       }
     }
   } catch {}

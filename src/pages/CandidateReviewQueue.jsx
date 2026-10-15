@@ -13,7 +13,7 @@ import { getModuleLabel } from '../discovery/modules.js';
 import { exportGigsTo19ColCSV, downloadCSV } from '../discovery/csvExport.js';
 import { normalizeHtmlToText } from '../discovery/textNormalizer.js';
 
-export default function CandidateReviewQueue({ onGigPublished }) {
+export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) {
   const [candidates, setCandidates] = useState(loadLocalCandidates);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDiscovering, setIsDiscovering] = useState(false);
@@ -102,24 +102,21 @@ export default function CandidateReviewQueue({ onGigPublished }) {
   const [inspectingCandidate, setInspectingCandidate] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editFormData, setEditFormData] = useState(null);
-  const [rejectingCandidateId, setRejectingCandidateId] = useState(null);
-  const [rejectionReasonInput, setRejectionReasonInput] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [actionSuccessMsg, setActionSuccessMsg] = useState('');
   const [actionWarningMsg, setActionWarningMsg] = useState('');
   const [actionErrorMsg, setActionErrorMsg] = useState('');
 
-  // Keyboard Escape listener to close modals
+  // Keyboard Escape listener to close inspect modal
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         if (inspectingCandidate) setInspectingCandidate(null);
-        if (rejectingCandidateId) setRejectingCandidateId(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [inspectingCandidate, rejectingCandidateId]);
+  }, [inspectingCandidate]);
 
   const displaySuccessMsg = (msg) => {
     setActionWarningMsg('');
@@ -292,6 +289,8 @@ export default function CandidateReviewQueue({ onGigPublished }) {
       updateCandidateInList(updated);
       displaySuccessMsg(`✅ Approved! Successfully published to Published Gigs: "${cand.title}"`);
       if (onGigPublished) onGigPublished(res.publishedGig);
+      if (onRefreshGigs) onRefreshGigs();
+      fetchOperationalStatus().then(st => st && setOperationalStatus(st)).catch(() => {});
     } catch (err) {
       alert(`❌ Error publishing candidate: ${err.message}`);
     } finally {
@@ -299,25 +298,25 @@ export default function CandidateReviewQueue({ onGigPublished }) {
     }
   };
 
-  // 2. Reject Action
-  const handleRejectConfirm = (candId) => {
-    if (!rejectionReasonInput.trim()) {
-      alert('Please enter a rejection reason before confirming.');
-      return;
-    }
+  // 2. Reject Action (One-click rejection without popup or required reason)
+  const handleReject = (candOrId, reason = null) => {
+    const candId = typeof candOrId === 'object' ? candOrId.id : candOrId;
     const target = candidates.find(c => c.id === candId);
     if (!target) return;
 
     const updated = {
       ...target,
       status: CANDIDATE_STATUS.REJECTED,
-      rejection_reason: rejectionReasonInput.trim(),
+      rejection_reason: reason || null,
       reviewed_at: new Date().toISOString()
     };
     updateCandidateInList(updated);
-    setRejectingCandidateId(null);
-    setRejectionReasonInput('');
+    if (inspectingCandidate?.id === candId) {
+      setInspectingCandidate(null);
+    }
     displaySuccessMsg(`Candidate rejected: "${target.title}"`);
+    if (onRefreshGigs) onRefreshGigs();
+    fetchOperationalStatus().then(st => st && setOperationalStatus(st)).catch(() => {});
   };
 
   // 3. Mark as Duplicate
@@ -330,6 +329,8 @@ export default function CandidateReviewQueue({ onGigPublished }) {
     };
     updateCandidateInList(updated);
     displaySuccessMsg(`Marked as duplicate: "${cand.title}"`);
+    if (onRefreshGigs) onRefreshGigs();
+    fetchOperationalStatus().then(st => st && setOperationalStatus(st)).catch(() => {});
   };
 
   // 4. Pause Action (FRD Section 11 & REV-06)
@@ -342,6 +343,8 @@ export default function CandidateReviewQueue({ onGigPublished }) {
     };
     updateCandidateInList(updated);
     displaySuccessMsg(`Candidate paused: "${cand.title}"`);
+    if (onRefreshGigs) onRefreshGigs();
+    fetchOperationalStatus().then(st => st && setOperationalStatus(st)).catch(() => {});
   };
 
   // 5. Stop Action (FRD Section 11 & REV-06)
@@ -354,6 +357,8 @@ export default function CandidateReviewQueue({ onGigPublished }) {
     };
     updateCandidateInList(updated);
     displaySuccessMsg(`Candidate stopped: "${cand.title}"`);
+    if (onRefreshGigs) onRefreshGigs();
+    fetchOperationalStatus().then(st => st && setOperationalStatus(st)).catch(() => {});
   };
 
   // 6. Resume Action
@@ -366,6 +371,8 @@ export default function CandidateReviewQueue({ onGigPublished }) {
     };
     updateCandidateInList(updated);
     displaySuccessMsg(`Candidate resumed to pending review: "${cand.title}"`);
+    if (onRefreshGigs) onRefreshGigs();
+    fetchOperationalStatus().then(st => st && setOperationalStatus(st)).catch(() => {});
   };
 
   // 7. Save Edits (with Referral Audit History tracking, REF-01, REF-04, REF-05)
@@ -610,11 +617,11 @@ export default function CandidateReviewQueue({ onGigPublished }) {
           )}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
-          {/* Schedule 1: Daily Published Health Check */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+          {/* Schedule 1: Opportunity Health Monitor */}
           <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <span style={{ fontSize: '12px', fontWeight: '700', color: '#334155' }}>🩺 Daily Opportunity Health</span>
+              <span style={{ fontSize: '12px', fontWeight: '700', color: '#334155' }}>🩺 Opportunity Health Monitor</span>
               <span style={{ fontSize: '11px', background: '#e0f2fe', color: '#0369a1', padding: '1px 6px', borderRadius: '4px', fontWeight: '600' }}>02:00 UTC</span>
             </div>
             <div style={{ fontSize: '11.5px', color: '#64748b' }}>
@@ -627,10 +634,10 @@ export default function CandidateReviewQueue({ onGigPublished }) {
             </div>
           </div>
 
-          {/* Schedule 2: Scheduled AI Gig Discovery */}
+          {/* Schedule 2: Automatic Gig Discovery */}
           <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <span style={{ fontSize: '12px', fontWeight: '700', color: '#334155' }}>⚡ Ingestion Discovery Cycle</span>
+              <span style={{ fontSize: '12px', fontWeight: '700', color: '#334155' }}>⚡ Automatic Gig Discovery</span>
               <span style={{ fontSize: '11px', background: '#ede9fe', color: '#6d28d9', padding: '1px 6px', borderRadius: '4px', fontWeight: '600' }}>Every 12h</span>
             </div>
             <div style={{ fontSize: '11.5px', color: '#64748b' }}>
@@ -640,27 +647,6 @@ export default function CandidateReviewQueue({ onGigPublished }) {
               {operationalStatus?.last_discovery?.completed_at
                 ? `Last Run: ${new Date(operationalStatus.last_discovery.completed_at).toLocaleString()}`
                 : 'Next Run: 00:00 & 12:00 UTC'}
-            </div>
-          </div>
-
-          {/* Published Gig Metrics */}
-          <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
-              📊 Published Gigs Status
-            </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ background: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '700' }}>
-                Active: {operationalStatus?.published_gig_metrics?.active ?? 0}
-              </span>
-              <span style={{ background: '#fef9c3', color: '#854d0e', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '700' }}>
-                Paused: {operationalStatus?.published_gig_metrics?.paused ?? 0}
-              </span>
-              <span style={{ background: '#fee2e2', color: '#991b1b', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '700' }}>
-                Stopped: {operationalStatus?.published_gig_metrics?.stopped ?? 0}
-              </span>
-              <span style={{ background: '#ffedd5', color: '#9a3412', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '700' }}>
-                Needs Review: {operationalStatus?.published_gig_metrics?.needs_review ?? 0}
-              </span>
             </div>
           </div>
         </div>
@@ -910,7 +896,7 @@ export default function CandidateReviewQueue({ onGigPublished }) {
                           ⏹ Stop
                         </button>
                         <button
-                          onClick={() => setRejectingCandidateId(c.id)}
+                          onClick={() => handleReject(c)}
                           style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '7px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
                         >
                           ✕ Reject
@@ -1276,10 +1262,7 @@ export default function CandidateReviewQueue({ onGigPublished }) {
 
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
-                      onClick={() => {
-                        setInspectingCandidate(null);
-                        setRejectingCandidateId(inspectingCandidate.id);
-                      }}
+                      onClick={() => handleReject(inspectingCandidate)}
                       style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}
                     >
                       ✕ Reject Candidate
@@ -1298,47 +1281,6 @@ export default function CandidateReviewQueue({ onGigPublished }) {
                 </div>
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 2: Rejection Reason Prompt */}
-      {rejectingCandidateId && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div style={{ background: '#fff', borderRadius: '12px', maxWidth: '440px', width: '100%', padding: '24px' }}>
-            <h3 style={{ fontSize: '17px', fontWeight: '800', color: '#111827', margin: '0 0 8px' }}>
-              Reject Candidate Opportunity
-            </h3>
-            <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 14px' }}>
-              Please specify a reason for rejecting this candidate. It will be recorded for audit history and kept out of learner views.
-            </p>
-
-            <textarea
-              rows={3}
-              placeholder="e.g. Inactive opportunity, low relevance to M1-M6, compensation below quality threshold..."
-              value={rejectionReasonInput}
-              onChange={(e) => setRejectionReasonInput(e.target.value)}
-              style={{ width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', marginBottom: '16px' }}
-              autoFocus
-            />
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button
-                onClick={() => {
-                  setRejectingCandidateId(null);
-                  setRejectionReasonInput('');
-                }}
-                style={{ background: '#f3f4f6', border: 'none', padding: '8px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleRejectConfirm(rejectingCandidateId)}
-                style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}
-              >
-                Confirm Rejection
-              </button>
-            </div>
           </div>
         </div>
       )}

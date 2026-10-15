@@ -78,17 +78,18 @@ async function main() {
   const workerId = `runner_${process.pid}_${Math.random().toString(36).slice(2, 8)}`;
   let activeJob = null;
 
-  // 1. Check if specific jobId was targeted
+  // 1. Check if specific jobId was targeted (admin-triggered dispatch)
   if (options.jobId) {
     try {
-      const existing = await jobManager.getJob(options.jobId);
-      if (existing && (existing.status === JOB_STATUS.PENDING || existing.status === JOB_STATUS.RUNNING)) {
-        await jobManager.claimJob(workerId);
-        activeJob = existing;
+      const claimed = await jobManager.claimJob(workerId, options.jobId);
+      if (claimed) {
+        activeJob = claimed;
         console.log(`[Worker] Claimed target admin job: ${activeJob.id}`);
+      } else {
+        console.warn(`[Worker] Target job ${options.jobId} could not be claimed (already running, completed, or not found).`);
       }
     } catch (claimErr) {
-      console.warn(`[Worker] Notice claiming target job ${options.jobId}:`, claimErr.message);
+      console.warn(`[Worker] Error claiming target job ${options.jobId}:`, claimErr.message);
     }
   }
 
@@ -100,20 +101,24 @@ async function main() {
         activeJob = pending;
         console.log(`[Worker] Claimed pending job from queue: ${activeJob.id} (Trigger: ${activeJob.trigger_type})`);
       }
-    } catch {}
+    } catch (queueErr) {
+      console.warn('[Worker] Notice polling queue:', queueErr.message);
+    }
   }
 
   // 3. If running scheduled cycle in Supabase without a prior job record, create one to track run
   if (!activeJob && options.storage === 'supabase') {
     try {
-      activeJob = await jobManager.createJob({
+      const created = await jobManager.createJob({
         triggerType: TRIGGER_TYPE.SCHEDULED,
         jobType: JOB_TYPE.DISCOVERY,
         params: { source: options.source, limit: options.limit }
       });
-      await jobManager.claimJob(workerId);
-      console.log(`[Worker] Registered scheduled discovery job: ${activeJob.id}`);
-    } catch {}
+      activeJob = await jobManager.claimJob(workerId, created.id);
+      console.log(`[Worker] Registered and claimed scheduled discovery job: ${activeJob?.id || created.id}`);
+    } catch (trackErr) {
+      console.warn('[Worker] Notice tracking scheduled discovery job:', trackErr.message);
+    }
   }
 
   // Determine effective execution options
@@ -191,7 +196,13 @@ async function main() {
         await jobManager.failJob(activeJob.id, err.message);
       } catch {}
     }
-    console.error('[Worker Fatal Error]:', err);
+    console.error('[Worker Fatal Error]:', err.message || err);
+    if (/column of '[^']+' in the schema cache/i.test(err?.message || '')) {
+      console.error('\n[Schema Notice]: Remote database schema is missing required columns.');
+      console.error('Please ensure all Supabase migrations have been applied:');
+      console.error('  - supabase/migrations/20261015000000_discovery_jobs.sql');
+      console.error('  - supabase/migrations/20261015000001_gig_candidates_health_and_referrals.sql\n');
+    }
     process.exit(1);
   }
 }

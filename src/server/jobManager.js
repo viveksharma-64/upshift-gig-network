@@ -165,7 +165,7 @@ class LocalJobStore {
 export class JobManager {
   constructor(options = {}) {
     this.localStore = new LocalJobStore(options.filePath || DEFAULT_JOBS_FILE);
-    this.supabaseClient = options.supabaseClient || null;
+    this.supabaseClient = options.supabaseClient || options.client || null;
     this.leaseDurationMs = options.leaseDurationMs || DEFAULT_LEASE_DURATION_MS;
   }
 
@@ -223,9 +223,10 @@ export class JobManager {
    * Claims the next available pending job or expired running job
    * Uses atomic lease locking to prevent multi-worker concurrency races.
    * @param {string} workerId - Identifier for the claiming worker
+   * @param {string} [targetJobId] - Optional specific job ID to claim (e.g. admin-triggered execution)
    * @returns {Promise<object|null>} claimed job or null if no job available
    */
-  async claimJob(workerId) {
+  async claimJob(workerId, targetJobId = null) {
     const now = new Date();
     const leaseExpires = new Date(now.getTime() + this.leaseDurationMs).toISOString();
     const nowIso = now.toISOString();
@@ -233,13 +234,40 @@ export class JobManager {
     const client = this._getClient();
     if (client) {
       try {
-        // 1. Try to claim via database RPC function if available
+        // If a specific job ID is targeted (admin-triggered dispatch):
+        if (targetJobId) {
+          const { data: updated, error: updateError } = await client
+            .from('discovery_jobs')
+            .update({
+              status: JOB_STATUS.RUNNING,
+              claimed_by: workerId,
+              started_at: nowIso,
+              heartbeat_at: nowIso,
+              lease_expires_at: leaseExpires,
+              updated_at: nowIso
+            })
+            .eq('id', targetJobId)
+            .or(`status.eq.${JOB_STATUS.PENDING},and(status.eq.${JOB_STATUS.RUNNING},lease_expires_at.lt.${nowIso})`)
+            .select()
+            .single();
+
+          if (!updateError && updated) {
+            this.localStore.update(updated.id, updated);
+            return updated;
+          }
+        }
+
+        // 1. Try to claim via database RPC function if available (FIFO)
         const { data: rpcData, error: rpcError } = await client.rpc('claim_discovery_job', {
           p_worker_id: workerId,
           p_lease_seconds: Math.floor(this.leaseDurationMs / 1000)
         });
-        if (!rpcError && rpcData && rpcData.id) {
-          return rpcData;
+        if (!rpcError && rpcData) {
+          const claimedRecord = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+          if (claimedRecord && claimedRecord.id) {
+            this.localStore.update(claimedRecord.id, claimedRecord);
+            return claimedRecord;
+          }
         }
 
         // 2. Direct query claim with lease recovery
@@ -259,7 +287,8 @@ export class JobManager {
               claimed_by: workerId,
               started_at: target.started_at || nowIso,
               heartbeat_at: nowIso,
-              lease_expires_at: leaseExpires
+              lease_expires_at: leaseExpires,
+              updated_at: nowIso
             })
             .eq('id', target.id)
             .select()
@@ -277,10 +306,11 @@ export class JobManager {
 
     // Local file fallback claim
     const jobs = this.localStore.list(50);
-    const claimable = jobs.find(j =>
-      j.status === JOB_STATUS.PENDING ||
-      (j.status === JOB_STATUS.RUNNING && j.lease_expires_at && new Date(j.lease_expires_at) < now)
-    );
+    const claimable = jobs.find(j => {
+      if (targetJobId && j.id !== targetJobId) return false;
+      return j.status === JOB_STATUS.PENDING ||
+        (j.status === JOB_STATUS.RUNNING && j.lease_expires_at && new Date(j.lease_expires_at) < now);
+    });
 
     if (claimable) {
       return this.localStore.update(claimable.id, {

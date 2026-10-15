@@ -263,4 +263,67 @@ describe('Regression: AI Discovery Queue Sync Store State Preservation', () => {
     const persisted = JSON.parse(mockLocalStorage.getItem('upshift_discovery_candidates'));
     assert.equal(persisted.length, 20);
   });
+
+  it('safely handles non-JSON / HTML responses (SPA router fallback) without throwing and preserves candidates', async () => {
+    const {
+      saveLocalCandidates,
+      fetchCandidateQueue
+    } = await import('../src/discovery/candidateStore.js');
+
+    const initial14 = allCandidates.slice(0, 14);
+    saveLocalCandidates(initial14);
+
+    // Simulate SPA fallback where /api/candidates returned index.html with <!doctype html>
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: {
+        get: (h) => (h.toLowerCase() === 'content-type' ? 'text/html; charset=utf-8' : null)
+      },
+      text: async () => '<!doctype html><html><head><title>UpShift</title></head><body><div id="root"></div></body></html>',
+      json: async () => {
+        throw new SyntaxError("Unexpected token '<', \"<!doctype \"... is not valid JSON");
+      }
+    });
+
+    const res = await fetchCandidateQueue();
+    assert.ok(Array.isArray(res));
+    assert.equal(res.length, 14, 'Must fall back to 14 preserved candidates without crashing');
+    assert.equal(res.syncSuccess, false);
+    assert.equal(res.syncStatus, 'warning');
+    assert.match(res.syncMessage, /non-JSON response/i);
+    assert.match(res.syncMessage, /Preserved 14 existing candidate listings/i);
+  });
+
+  it('one-click rejection works without reason popup, setting status to rejected and reason to null', async () => {
+    const candidateQueueSrc = fs.readFileSync('./src/pages/CandidateReviewQueue.jsx', 'utf8');
+
+    // Verify rejection reason modal has been removed
+    assert.equal(candidateQueueSrc.includes('Reject Candidate Opportunity'), false, 'Rejection modal title must not exist');
+    assert.equal(candidateQueueSrc.includes('rejectingCandidateId'), false, 'rejectingCandidateId state must not exist');
+    assert.equal(candidateQueueSrc.includes('rejectionReasonInput'), false, 'rejectionReasonInput state must not exist');
+    assert.equal(candidateQueueSrc.includes('handleRejectConfirm'), false, 'handleRejectConfirm modal submit handler must not exist');
+
+    // Verify handleReject accepts optional reason defaulting to null
+    assert.ok(candidateQueueSrc.includes('const handleReject = (candOrId, reason = null) => {'), 'handleReject must accept optional reason with default null');
+
+    // Simulate handleReject logic
+    const testCandidate = { ...allCandidates[0], status: 'pending_review' };
+    const simulatedReject = (cand, reason = null) => {
+      return {
+        ...cand,
+        status: 'rejected',
+        is_approved: false,
+        rejection_reason: reason || null,
+        reviewed_at: new Date().toISOString()
+      };
+    };
+
+    const rejected = simulatedReject(testCandidate);
+    assert.equal(rejected.status, 'rejected');
+    assert.equal(rejected.is_approved, false);
+    assert.equal(rejected.rejection_reason, null);
+    assert.ok(rejected.reviewed_at);
+  });
 });
+

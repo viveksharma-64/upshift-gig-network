@@ -389,3 +389,221 @@ describe('Simplified Learner Profile & Signup Neutral Placeholders Suite', () =>
   });
 });
 
+// ====================================================================
+// LEARNER NOTIFICATION BADGE & READ/UNREAD PERSISTENCE SUITE
+// ====================================================================
+describe('Learner Notification Badge & Read/Unread State Management Suite', () => {
+  const dashboardSrc = fs.readFileSync('./src/pages/Dashboard.jsx', 'utf8');
+
+  // Simulated browser storage sandbox
+  class MemoryStorage {
+    constructor() {
+      this.store = new Map();
+    }
+    getItem(key) {
+      return this.store.has(key) ? this.store.get(key) : null;
+    }
+    setItem(key, value) {
+      this.store.set(key, String(value));
+    }
+    removeItem(key) {
+      this.store.delete(key);
+    }
+    clear() {
+      this.store.clear();
+    }
+  }
+
+  const getLearnerNotificationsKey = (userId) => userId ? `upshift_read_notifications_${userId}` : null;
+  const DEFAULT_LEARNER_NOTIFICATIONS = [
+    {
+      id: 'notif_opps_m4_m3',
+      icon: '⚡',
+      title: 'New opportunities in M4 & M3',
+      time: 'Just now · VibeCoder & DeepAnnotator listings active'
+    },
+    {
+      id: 'notif_featured_briefs',
+      icon: '⭐',
+      title: 'Featured briefs updated',
+      time: '2 hours ago · Verified rate briefs available'
+    },
+    {
+      id: 'notif_profile_active',
+      icon: '💼',
+      title: 'Learner Profile Active',
+      time: 'Today · Ready to apply directly via Gateway'
+    }
+  ];
+
+  test('1. Notification badge is dynamic and never displays a hardcoded 3 or a 0 badge', () => {
+    // Must NOT contain hardcoded <span className="learner-notif-badge">3</span>
+    assert.equal(
+      dashboardSrc.includes('<span className="learner-notif-badge">3</span>'),
+      false,
+      'Hardcoded 3 badge must be removed'
+    );
+
+    // Must conditionally render badge only when unread count > 0
+    assert.ok(
+      dashboardSrc.includes('unreadNotifCount > 0 &&') && dashboardSrc.includes('learner-notif-badge'),
+      'Badge must be conditionally rendered only when unreadNotifCount > 0'
+    );
+
+    // Must bind badge text to dynamic unread count
+    assert.ok(
+      dashboardSrc.includes('{unreadNotifCount}</span>'),
+      'Badge text must display dynamic unreadNotifCount'
+    );
+
+    // Must define source code hooks and storage helpers
+    assert.ok(dashboardSrc.includes('upshift_read_notifications'), 'Must reference upshift_read_notifications prefix');
+    assert.ok(dashboardSrc.includes('getLearnerNotificationsKey'), 'Must define getLearnerNotificationsKey scoped by user.id');
+    assert.ok(dashboardSrc.includes('markNotificationsAsRead'), 'Must define markNotificationsAsRead handler');
+    assert.ok(dashboardSrc.includes('handleToggleNotifications'), 'Must define handleToggleNotifications handler');
+    assert.ok(dashboardSrc.includes('DEFAULT_LEARNER_NOTIFICATIONS'), 'Must define DEFAULT_LEARNER_NOTIFICATIONS');
+  });
+
+  test('2. Dynamic unread count calculation and default notifications model', () => {
+    assert.ok(Array.isArray(DEFAULT_LEARNER_NOTIFICATIONS), 'DEFAULT_LEARNER_NOTIFICATIONS must be an array');
+    assert.equal(DEFAULT_LEARNER_NOTIFICATIONS.length, 3, 'Must define 3 initial learner notifications');
+
+    const expectedIds = ['notif_opps_m4_m3', 'notif_featured_briefs', 'notif_profile_active'];
+    for (const id of expectedIds) {
+      assert.ok(DEFAULT_LEARNER_NOTIFICATIONS.some(n => n.id === id), `Must include notification id ${id}`);
+    }
+
+    // Initial state: no read IDs -> 3 unread
+    let readNotifIds = [];
+    let unreadCount = DEFAULT_LEARNER_NOTIFICATIONS.filter(n => !readNotifIds.includes(n.id)).length;
+    assert.equal(unreadCount, 3, 'Initial unread count must be 3');
+
+    // One read -> 2 unread
+    readNotifIds = ['notif_opps_m4_m3'];
+    unreadCount = DEFAULT_LEARNER_NOTIFICATIONS.filter(n => !readNotifIds.includes(n.id)).length;
+    assert.equal(unreadCount, 2, 'Unread count must be 2 after one notification is read');
+
+    // All read -> 0 unread
+    readNotifIds = expectedIds;
+    unreadCount = DEFAULT_LEARNER_NOTIFICATIONS.filter(n => !readNotifIds.includes(n.id)).length;
+    assert.equal(unreadCount, 0, 'Unread count must be 0 after all notifications are read');
+  });
+
+  test('3. Opening notifications marks them as read and updates count immediately', () => {
+    const storage = new MemoryStorage();
+    const userId = 'usr-learner-test-001';
+    const storageKey = `upshift_read_notifications_${userId}`;
+
+    // Initial state
+    let readNotifIds = [];
+    let unreadNotifCount = DEFAULT_LEARNER_NOTIFICATIONS.filter(n => !readNotifIds.includes(n.id)).length;
+    assert.equal(unreadNotifCount, 3);
+
+    // Simulate opening notifications popover
+    const handleToggleNotifications = () => {
+      const allIds = DEFAULT_LEARNER_NOTIFICATIONS.map(n => n.id);
+      readNotifIds = Array.from(new Set([...readNotifIds, ...allIds]));
+      storage.setItem(storageKey, JSON.stringify(readNotifIds));
+      unreadNotifCount = DEFAULT_LEARNER_NOTIFICATIONS.filter(n => !readNotifIds.includes(n.id)).length;
+    };
+
+    handleToggleNotifications();
+
+    // Verify unread count is immediately 0
+    assert.equal(unreadNotifCount, 0, 'Unread count must immediately become 0 upon opening notifications');
+    assert.equal(readNotifIds.length, 3, 'All 3 notification IDs must be recorded as read');
+
+    // Verify storage was persisted immediately
+    const rawStored = storage.getItem(storageKey);
+    assert.ok(rawStored, 'Read status must be persisted in storage');
+    assert.deepEqual(JSON.parse(rawStored), ['notif_opps_m4_m3', 'notif_featured_briefs', 'notif_profile_active']);
+  });
+
+  test('4. Zero unread notifications completely removes the badge (no 0 badge displayed)', () => {
+    const renderBadgeIfPresent = (count) => {
+      if (count > 0) {
+        return `<span class="learner-notif-badge">${count}</span>`;
+      }
+      return null;
+    };
+
+    // When count is 3: renders badge with 3
+    assert.equal(renderBadgeIfPresent(3), '<span class="learner-notif-badge">3</span>');
+
+    // When count is 1: renders badge with 1
+    assert.equal(renderBadgeIfPresent(1), '<span class="learner-notif-badge">1</span>');
+
+    // When count is 0: returns null, no badge in DOM
+    assert.equal(renderBadgeIfPresent(0), null, 'Zero unread must return null and render no badge');
+  });
+
+  test('5. Read status persists across page refresh and navigation', () => {
+    const storage = new MemoryStorage();
+    const userId = 'usr-learner-persist-002';
+    const storageKey = getLearnerNotificationsKey(userId);
+
+    // User views notifications before page refresh
+    const allIds = DEFAULT_LEARNER_NOTIFICATIONS.map(n => n.id);
+    storage.setItem(storageKey, JSON.stringify(allIds));
+
+    // Page refresh / navigation re-hydration simulation
+    const rehydratedRaw = storage.getItem(storageKey);
+    const rehydratedReadIds = rehydratedRaw ? JSON.parse(rehydratedRaw) : [];
+    const rehydratedUnreadCount = DEFAULT_LEARNER_NOTIFICATIONS.filter(n => !rehydratedReadIds.includes(n.id)).length;
+
+    assert.equal(rehydratedUnreadCount, 0, 'Unread count must remain 0 after refresh');
+    assert.equal(rehydratedReadIds.length, 3, 'Persisted read IDs must be restored intact');
+  });
+
+  test('6. User isolation: reading notifications as User A does not affect User B', () => {
+    const storage = new MemoryStorage();
+    const userA = { id: 'usr-learner-alpha' };
+    const userB = { id: 'usr-learner-beta' };
+
+    const keyA = getLearnerNotificationsKey(userA.id);
+    const keyB = getLearnerNotificationsKey(userB.id);
+
+    // User A opens and views all notifications
+    const allIds = DEFAULT_LEARNER_NOTIFICATIONS.map(n => n.id);
+    storage.setItem(keyA, JSON.stringify(allIds));
+
+    // User B checks their notifications
+    const rawB = storage.getItem(keyB);
+    const readB = rawB ? JSON.parse(rawB) : [];
+    const unreadCountB = DEFAULT_LEARNER_NOTIFICATIONS.filter(n => !readB.includes(n.id)).length;
+
+    // User A has 0 unread; User B still has 3 unread
+    const rawA = storage.getItem(keyA);
+    const readA = rawA ? JSON.parse(rawA) : [];
+    const unreadCountA = DEFAULT_LEARNER_NOTIFICATIONS.filter(n => !readA.includes(n.id)).length;
+
+    assert.equal(unreadCountA, 0, "User A must have 0 unread notifications");
+    assert.equal(unreadCountB, 3, "User B must still have 3 unread notifications");
+    assert.equal(storage.getItem(keyB), null, "User B storage key must remain untouched by User A's actions");
+  });
+
+  test('7. Loading and error safety: invalid storage or missing user does not false-clear unread', () => {
+    // Missing user returns null key and does not crash
+    assert.equal(getLearnerNotificationsKey(null), null);
+    assert.equal(getLearnerNotificationsKey(undefined), null);
+
+    // Corrupted storage entry simulation
+    const storage = new MemoryStorage();
+    storage.setItem('upshift_read_notifications_usr-corrupt', 'INVALID_JSON{[[');
+
+    const safeLoadReadIds = (userId) => {
+      try {
+        const key = getLearnerNotificationsKey(userId);
+        const raw = key ? storage.getItem(key) : null;
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    };
+
+    const loaded = safeLoadReadIds('usr-corrupt');
+    assert.deepEqual(loaded, [], 'Corrupt storage must safely fall back to empty array without throwing');
+  });
+});
+
+

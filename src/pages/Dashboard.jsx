@@ -141,6 +141,33 @@ export const DEFAULT_SEED_GIGS = [
   }
 ];
 
+// Default notifications shown to learners (FRD Section 22 NOT-01 & Learner UX)
+export const DEFAULT_LEARNER_NOTIFICATIONS = [
+  {
+    id: 'notif_opps_m4_m3',
+    icon: '⚡',
+    title: 'New opportunities in M4 & M3',
+    time: 'Just now · VibeCoder & DeepAnnotator listings active'
+  },
+  {
+    id: 'notif_featured_briefs',
+    icon: '⭐',
+    title: 'Featured briefs updated',
+    time: '2 hours ago · Verified rate briefs available'
+  },
+  {
+    id: 'notif_profile_active',
+    icon: '💼',
+    title: 'Learner Profile Active',
+    time: 'Today · Ready to apply directly via Gateway'
+  }
+];
+
+// Storage keys strictly isolated by authoritative authenticated user ID (never shared globally across users)
+export const getLearnerSavedGigsKey = (userId) => userId ? `upshift_saved_gigs_${userId}` : null;
+export const getLearnerAppliedGigsKey = (userId) => userId ? `upshift_applied_gigs_${userId}` : null;
+export const getLearnerNotificationsKey = (userId) => userId ? `upshift_read_notifications_${userId}` : null;
+
 // ==========================================
 // 1. LEARNER DASHBOARD COMPONENT (OPPORTUNITIES)
 // ==========================================
@@ -173,10 +200,6 @@ export function LearnerDashboard() {
   const [sortBy, setSortBy] = useState('latest'); // 'latest', 'high_pay', 'low_pay', 'hourly', 'fixed'
   const [viewingGig, setViewingGig] = useState(null);
 
-  // Storage keys strictly isolated by authoritative authenticated user ID (never shared globally across users)
-  const getLearnerSavedGigsKey = (userId) => userId ? `upshift_saved_gigs_${userId}` : null;
-  const getLearnerAppliedGigsKey = (userId) => userId ? `upshift_applied_gigs_${userId}` : null;
-
   // Saved Gigs state (persisted strictly per authenticated user ID)
   const [savedGigIds, setSavedGigIds] = useState(() => {
     if (typeof window === 'undefined' || !user?.id) return [];
@@ -201,24 +224,72 @@ export function LearnerDashboard() {
     }
   });
 
+  // Read notifications state (persisted strictly per authenticated user ID)
+  const [readNotifIds, setReadNotifIds] = useState(() => {
+    if (typeof window === 'undefined' || !user?.id) return [];
+    try {
+      const key = getLearnerNotificationsKey(user.id);
+      const saved = key ? localStorage.getItem(key) : null;
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Unread notification count computation strictly based on unread items
+  const learnerNotifications = DEFAULT_LEARNER_NOTIFICATIONS;
+  const unreadNotifCount = useMemo(() => {
+    return learnerNotifications.filter(n => !readNotifIds.includes(n.id)).length;
+  }, [learnerNotifications, readNotifIds]);
+
+  // Mark all unread notifications as read and persist immediately per-user
+  const markNotificationsAsRead = () => {
+    if (!user?.id) return;
+    try {
+      const allIds = learnerNotifications.map(n => n.id);
+      const updated = Array.from(new Set([...readNotifIds, ...allIds]));
+      setReadNotifIds(updated);
+      const key = getLearnerNotificationsKey(user.id);
+      if (key) {
+        localStorage.setItem(key, JSON.stringify(updated));
+      }
+    } catch (err) {
+      console.warn('Error saving read notifications:', err);
+    }
+  };
+
+  // Toggle notifications popover: when opened, marks unread notifications as read immediately
+  const handleToggleNotifications = () => {
+    const nextShow = !showNotifications;
+    setShowNotifications(nextShow);
+    if (nextShow && unreadNotifCount > 0 && user?.id) {
+      markNotificationsAsRead();
+    }
+  };
+
   // Re-sync isolated user state immediately when authenticated user changes or on sign out
   useEffect(() => {
     if (!user?.id) {
       setSavedGigIds([]);
       setAppliedGigs([]);
+      setReadNotifIds([]);
       return;
     }
     try {
       const savedKey = getLearnerSavedGigsKey(user.id);
       const appliedKey = getLearnerAppliedGigsKey(user.id);
+      const notifKey = getLearnerNotificationsKey(user.id);
       const saved = savedKey ? localStorage.getItem(savedKey) : null;
       const applied = appliedKey ? localStorage.getItem(appliedKey) : null;
+      const readNotifs = notifKey ? localStorage.getItem(notifKey) : null;
       setSavedGigIds(saved ? JSON.parse(saved) : []);
       setAppliedGigs(applied ? JSON.parse(applied) : []);
+      setReadNotifIds(readNotifs ? JSON.parse(readNotifs) : []);
     } catch (err) {
       console.warn('Error loading user-scoped storage:', err);
       setSavedGigIds([]);
       setAppliedGigs([]);
+      setReadNotifIds([]);
     }
   }, [user?.id]);
 
@@ -250,6 +321,7 @@ export function LearnerDashboard() {
   const handleSignOut = async () => {
     setSavedGigIds([]);
     setAppliedGigs([]);
+    setReadNotifIds([]);
     await signOut();
     navigate('/login');
   };
@@ -810,17 +882,19 @@ export function LearnerDashboard() {
               )}
             </div>
 
-            {/* Notification Bell with Badge '3' */}
+            {/* Notification Bell with Dynamic Unread Badge */}
             <div style={{ position: 'relative' }}>
               <button
                 type="button"
                 className="learner-icon-btn"
-                onClick={() => setShowNotifications(!showNotifications)}
-                title="Notifications (3 unread)"
-                aria-label="Notifications"
+                onClick={handleToggleNotifications}
+                title={unreadNotifCount > 0 ? `Notifications (${unreadNotifCount} unread)` : 'Notifications'}
+                aria-label={`Notifications${unreadNotifCount > 0 ? ` (${unreadNotifCount} unread)` : ''}`}
               >
                 🔔
-                <span className="learner-notif-badge">3</span>
+                {unreadNotifCount > 0 && (
+                  <span className="learner-notif-badge">{unreadNotifCount}</span>
+                )}
               </button>
 
               {/* Notification Popover */}
@@ -828,30 +902,33 @@ export function LearnerDashboard() {
                 <div className="learner-notif-popover">
                   <div className="notif-header">
                     <strong>Notifications</strong>
-                    <button type="button" onClick={() => setShowNotifications(false)} className="modal-close-x">✕</button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {unreadNotifCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={markNotificationsAsRead}
+                          className="saas-action-link"
+                          style={{ fontSize: '11px', fontWeight: '600' }}
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                      <button type="button" onClick={() => setShowNotifications(false)} className="modal-close-x">✕</button>
+                    </div>
                   </div>
                   <div className="notif-list">
-                    <div className="notif-item unread">
-                      <div className="notif-bullet">⚡</div>
-                      <div>
-                        <div className="notif-title">New opportunities in M4 & M3</div>
-                        <div className="notif-time">Just now · VibeCoder & DeepAnnotator listings active</div>
-                      </div>
-                    </div>
-                    <div className="notif-item unread">
-                      <div className="notif-bullet">⭐</div>
-                      <div>
-                        <div className="notif-title">Featured briefs updated</div>
-                        <div className="notif-time">2 hours ago · Verified rate briefs available</div>
-                      </div>
-                    </div>
-                    <div className="notif-item">
-                      <div className="notif-bullet">💼</div>
-                      <div>
-                        <div className="notif-title">Learner Profile Active</div>
-                        <div className="notif-time">Today · Ready to apply directly via Gateway</div>
-                      </div>
-                    </div>
+                    {learnerNotifications.map((n) => {
+                      const isUnread = !readNotifIds.includes(n.id);
+                      return (
+                        <div key={n.id} className={`notif-item ${isUnread ? 'unread' : ''}`}>
+                          <div className="notif-bullet">{n.icon}</div>
+                          <div>
+                            <div className="notif-title">{n.title}</div>
+                            <div className="notif-time">{n.time}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1654,9 +1731,16 @@ export function AdminDashboard() {
   const pendingReviews = useMemo(() => candidates.filter(c => c.status === 'pending_review').length, [candidates]);
   const approvedInStaging = useMemo(() => candidates.filter(c => c.status === 'approved').length, [candidates]);
 
+  // Breakdown of active vs total published opportunities (reconciling sidebar with observability panel)
+  const activePublishedGigsCount = useMemo(() => gigs.filter(g => (g.status || 'Active') === 'Active' && (g.activity_status || 'Active') !== 'Stopped').length, [gigs]);
+  const totalPublishedGigsCount = gigs.length;
+
   // Tab change handler that updates URL and persistence without reloading page
   const handleTabChange = (newTab) => {
     setAdminActiveTab(newTab);
+    if (newTab === 'directory' || newTab === 'overview') {
+      fetchGigs();
+    }
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem('upshift_admin_tab', newTab);
@@ -2079,7 +2163,13 @@ export function AdminDashboard() {
               <span>📋</span>
               <span>Published Gigs</span>
             </span>
-            <span className="saas-nav-badge">{gigs.length}</span>
+            <span
+              className="saas-nav-badge"
+              title={`${activePublishedGigsCount} active, ${totalPublishedGigsCount} total published opportunities`}
+              aria-label={`${activePublishedGigsCount} active of ${totalPublishedGigsCount} total published opportunities`}
+            >
+              {totalPublishedGigsCount}
+            </span>
           </button>
 
           <button
@@ -2465,6 +2555,7 @@ export function AdminDashboard() {
               onGigPublished={(publishedGig) => {
                 if (publishedGig) setGigs(prev => [publishedGig, ...prev]);
               }}
+              onRefreshGigs={fetchGigs}
             />
           )}
 
