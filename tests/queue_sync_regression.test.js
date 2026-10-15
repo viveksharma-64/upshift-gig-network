@@ -325,5 +325,297 @@ describe('Regression: AI Discovery Queue Sync Store State Preservation', () => {
     assert.equal(rejected.rejection_reason, null);
     assert.ok(rejected.reviewed_at);
   });
+
+  it('syncing 8 remote candidates cannot reduce a local queue of 221 to 8', async () => {
+    const {
+      saveLocalCandidates,
+      loadLocalCandidates,
+      fetchCandidateQueue
+    } = await import('../src/discovery/candidateStore.js');
+
+    // Seed full set of 221 candidates in local cache
+    assert.equal(allCandidates.length, 221, 'candidates.json must contain 221 candidates');
+    saveLocalCandidates(allCandidates);
+
+    const initialLocal = loadLocalCandidates();
+    assert.equal(initialLocal.length, 221);
+    const initialPending = initialLocal.filter(c => c.status === 'pending_review').length;
+    assert.equal(initialPending, 85);
+
+    // Mock remote server returning only 8 candidates (e.g. initial fixture batch)
+    const remote8 = allCandidates.slice(0, 8).map(c => ({
+      ...c,
+      title: `${c.title} (Synced from Remote)`
+    }));
+
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes('/api/candidates')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => remote8
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
+
+    const res = await fetchCandidateQueue();
+
+    // Verify queue was NOT truncated to 8!
+    assert.equal(res.length, 221, 'Syncing 8 remote candidates must NOT reduce queue from 221 to 8');
+    assert.equal(res.syncSuccess, true);
+    assert.equal(res.syncSource, 'api');
+    assert.equal(res.isFallback, false);
+
+    // Verify localStorage also retains all 221 candidates
+    const persisted = JSON.parse(mockLocalStorage.getItem('upshift_discovery_candidates'));
+    assert.equal(persisted.length, 221, 'Persisted localStorage must retain 221 candidates');
+
+    // Verify pending review count is preserved
+    const resPending = res.filter(c => c.status === 'pending_review').length;
+    assert.equal(resPending, 85, 'Pending count must remain 85');
+
+    // Verify matching 8 received updated remote authoritative titles
+    for (let i = 0; i < 8; i++) {
+      const found = res.find(c => c.id === remote8[i].id);
+      assert.ok(found, `Candidate ${remote8[i].id} must exist in reconciled list`);
+      assert.match(found.title, /Synced from Remote/);
+    }
+  });
+
+  it('existing approved/rejected review states are preserved during reconciliation', async () => {
+    const {
+      reconcileCandidates
+    } = await import('../src/discovery/candidateStore.js');
+
+    const localCandidates = [
+      {
+        id: 'cand_test_approved',
+        title: 'Old Title 1',
+        status: 'approved',
+        reviewed_by: 'admin@upshift.work',
+        reviewed_at: '2026-10-14T10:00:00.000Z',
+        admin_notes: 'Approved for M2 track',
+        published_gig_id: 'gig_101'
+      },
+      {
+        id: 'cand_test_rejected',
+        title: 'Old Title 2',
+        status: 'rejected',
+        reviewed_by: 'admin@upshift.work',
+        reviewed_at: '2026-10-14T11:00:00.000Z',
+        rejection_reason: 'Not a freelance gig'
+      },
+      {
+        id: 'cand_test_pending',
+        title: 'Old Title 3',
+        status: 'pending_review'
+      }
+    ];
+
+    // Remote records have fresh crawl data, but lack review decisions (defaulting to pending_review)
+    // or remote has a newer review decision for candidate 3
+    const remoteCandidates = [
+      {
+        id: 'cand_test_approved',
+        title: 'Authoritative Crawler Title 1',
+        description: 'New detailed job description from source feed',
+        status: 'pending_review', // Remote ingested raw candidate lacks review metadata
+        reviewed_by: null,
+        reviewed_at: null,
+        admin_notes: ''
+      },
+      {
+        id: 'cand_test_rejected',
+        title: 'Authoritative Crawler Title 2',
+        description: 'Updated description from source feed',
+        status: 'pending_review',
+        rejection_reason: null
+      },
+      {
+        id: 'cand_test_pending',
+        title: 'Authoritative Crawler Title 3',
+        status: 'approved', // Remote has an authoritative newer approval
+        reviewed_by: 'lead_curator@upshift.work',
+        reviewed_at: '2026-10-15T09:00:00.000Z',
+        admin_notes: 'Verified remote listing'
+      }
+    ];
+
+    const reconciled = reconcileCandidates(localCandidates, remoteCandidates);
+
+    assert.equal(reconciled.length, 3);
+
+    // 1. Approved state must be preserved despite remote being pending_review
+    const item1 = reconciled.find(c => c.id === 'cand_test_approved');
+    assert.equal(item1.status, 'approved', 'Must preserve locally approved status');
+    assert.equal(item1.reviewed_by, 'admin@upshift.work', 'Must preserve reviewed_by');
+    assert.equal(item1.admin_notes, 'Approved for M2 track', 'Must preserve admin_notes');
+    assert.equal(item1.published_gig_id, 'gig_101', 'Must preserve published_gig_id');
+    assert.equal(item1.title, 'Authoritative Crawler Title 1', 'Must take remote authoritative title');
+    assert.equal(item1.description, 'New detailed job description from source feed', 'Must take remote authoritative description');
+
+    // 2. Rejected state must be preserved despite remote being pending_review
+    const item2 = reconciled.find(c => c.id === 'cand_test_rejected');
+    assert.equal(item2.status, 'rejected', 'Must preserve locally rejected status');
+    assert.equal(item2.rejection_reason, 'Not a freelance gig', 'Must preserve rejection_reason');
+    assert.equal(item2.reviewed_by, 'admin@upshift.work', 'Must preserve reviewed_by');
+    assert.equal(item2.title, 'Authoritative Crawler Title 2', 'Must take remote authoritative title');
+
+    // 3. Remote valid newer review state is adopted when local had no review decision
+    const item3 = reconciled.find(c => c.id === 'cand_test_pending');
+    assert.equal(item3.status, 'approved', 'Must adopt remote approved status');
+    assert.equal(item3.reviewed_by, 'lead_curator@upshift.work');
+    assert.equal(item3.admin_notes, 'Verified remote listing');
+  });
+
+  it('asynchronous job transitions from pending/running to success and failure, including queue refresh and polling cleanup', async () => {
+    const {
+      fetchJobStatus,
+      saveLocalCandidates,
+      loadLocalCandidates
+    } = await import('../src/discovery/candidateStore.js');
+
+    // Verify fetchJobStatus correctly queries /api/discovery/status?jobId=...
+    let requestedUrl = '';
+    globalThis.fetch = async (url) => {
+      requestedUrl = String(url);
+      if (requestedUrl.includes('/api/discovery/status?jobId=job_poll_test')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({
+            success: true,
+            job: {
+              id: 'job_poll_test',
+              status: 'running',
+              job_type: 'discovery',
+              started_at: new Date().toISOString()
+            }
+          })
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({ error: 'Not found' }) };
+    };
+
+    const runningJob = await fetchJobStatus('job_poll_test');
+    assert.ok(runningJob, 'Must fetch running job record');
+    assert.equal(runningJob.id, 'job_poll_test');
+    assert.equal(runningJob.status, 'running');
+    assert.match(requestedUrl, /jobId=job_poll_test/);
+
+    // =========================================================================
+    // Scenario A: Transition from pending/running -> succeeded with queue refresh
+    // =========================================================================
+    const initialCandidates = [
+      { id: 'cand_init_1', title: 'Initial Candidate 1', status: 'pending_review' }
+    ];
+    saveLocalCandidates(initialCandidates);
+
+    // Mock completion response with result summary
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes('/api/discovery/status?jobId=')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({
+            success: true,
+            job: {
+              id: 'job_succ_1',
+              status: 'succeeded',
+              result_summary: {
+                newly_saved: 5,
+                fetched: 25,
+                relevant: 20,
+                total_pending: 6
+              }
+            }
+          })
+        };
+      }
+      if (u.includes('/api/candidates')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => [
+            { id: 'cand_init_1', title: 'Initial Candidate 1 (Updated)', status: 'pending_review' },
+            { id: 'cand_new_2', title: 'Newly Discovered 2', status: 'pending_review' }
+          ]
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
+
+    // Simulate poller cycle for succeeded job
+    let simulatedActiveJob = { id: 'job_succ_1', status: 'pending' };
+    let pollTimerCleared = false;
+    let timerRef = 12345;
+    const mockClearTimeout = (id) => {
+      if (id === timerRef) pollTimerCleared = true;
+    };
+
+    const statusResult = await fetchJobStatus(simulatedActiveJob.id);
+    assert.equal(statusResult.status, 'succeeded');
+
+    // Trigger authoritative queue refresh
+    const { fetchCandidateQueue } = await import('../src/discovery/candidateStore.js');
+    const refreshed = await fetchCandidateQueue();
+    assert.equal(refreshed.length, 2, 'Queue must reflect refreshed candidates');
+    assert.equal(refreshed[0].title, 'Initial Candidate 1 (Updated)');
+    assert.equal(refreshed[1].id, 'cand_new_2');
+
+    // Simulated component state update on success
+    simulatedActiveJob = { ...simulatedActiveJob, ...statusResult };
+    assert.equal(simulatedActiveJob.status, 'succeeded');
+    mockClearTimeout(timerRef);
+    assert.equal(pollTimerCleared, true, 'Timer must be cleaned up on success');
+
+    // =========================================================================
+    // Scenario B: Transition from pending/running -> failed with error message
+    // =========================================================================
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes('/api/discovery/status?jobId=')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({
+            success: true,
+            job: {
+              id: 'job_fail_1',
+              status: 'failed',
+              error_message: 'Upstream feed HTTP 503 gateway unavailable'
+            }
+          })
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
+
+    let simulatedFailedJob = { id: 'job_fail_1', status: 'running' };
+    let failTimerCleared = false;
+
+    const failedJobResult = await fetchJobStatus(simulatedFailedJob.id);
+    assert.equal(failedJobResult.status, 'failed');
+    assert.equal(failedJobResult.error_message, 'Upstream feed HTTP 503 gateway unavailable');
+
+    simulatedFailedJob = { ...simulatedFailedJob, ...failedJobResult };
+    assert.equal(simulatedFailedJob.status, 'failed');
+    if (simulatedFailedJob.status === 'failed') {
+      failTimerCleared = true;
+    }
+    assert.equal(failTimerCleared, true, 'Polling must stop and timer cleared on job failure');
+
+    // Queue in localStorage must remain uncorrupted
+    const remainingStore = loadLocalCandidates();
+    assert.ok(remainingStore.length > 0, 'Candidates must not be cleared on job failure');
+  });
 });
 

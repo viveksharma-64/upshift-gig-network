@@ -6,7 +6,7 @@
 import { supabase } from '../lib/supabase.js';
 import { CANDIDATE_STATUS, ACTIVITY_STATUS, normalizeActivityStatus, createCandidate } from './types.js';
 import { defaultNotificationService } from '../server/notifications.js';
-import { normalizeCanonicalUrl, normalizeTextKey } from '../server/deduplication.js';
+import { normalizeCanonicalUrl, normalizeTextKey, generateDeduplicationKey } from '../server/deduplication.js';
 
 import { normalizeHtmlToText } from './textNormalizer.js';
 
@@ -59,6 +59,139 @@ export function saveLocalCandidates(list) {
   } catch (err) {
     console.warn('Failed to save candidates to localStorage:', err);
   }
+}
+
+/**
+ * Safely reconciles existing local candidates with incoming remote records.
+ * - Merges matching records by stable candidate ID or deduplication key.
+ * - Uses remote values for authoritative crawled fields (title, description, rates, etc.).
+ * - Strictly preserves local review status (approved, rejected, etc.) and review metadata
+ *   unless the remote record contains a valid newer review decision.
+ * - Preserves all existing local candidates when the remote response is partial.
+ * - Appends newly discovered remote candidates without duplication.
+ * - Never truncates, empties, or reduces the candidate queue.
+ *
+ * @param {Array<object>} existingLocal
+ * @param {Array<object>} incomingRemote
+ * @returns {Array<object>} Reconciled candidates list
+ */
+export function reconcileCandidates(existingLocal = [], incomingRemote = []) {
+  const localList = Array.isArray(existingLocal) ? existingLocal : [];
+  if (!Array.isArray(incomingRemote) || incomingRemote.length === 0) {
+    return localList;
+  }
+
+  const localById = new Map();
+  const localByDedupKey = new Map();
+
+  for (const loc of localList) {
+    if (loc && loc.id) {
+      localById.set(loc.id, loc);
+    }
+    const key = generateDeduplicationKey(loc);
+    if (key) {
+      localByDedupKey.set(key, loc);
+    }
+  }
+
+  const matchedLocalIds = new Set();
+  const matchedRemoteIds = new Set();
+  const mergedMap = new Map();
+
+  for (const rawRem of incomingRemote) {
+    if (!rawRem) continue;
+    const rem = createCandidate(rawRem);
+
+    // 1. Match by candidate ID or deduplication key
+    let loc = null;
+    if (rem.id && localById.has(rem.id)) {
+      loc = localById.get(rem.id);
+    } else {
+      const remKey = generateDeduplicationKey(rem);
+      if (remKey && localByDedupKey.has(remKey)) {
+        loc = localByDedupKey.get(remKey);
+      }
+    }
+
+    if (loc) {
+      matchedLocalIds.add(loc.id);
+      if (rem.id) matchedRemoteIds.add(rem.id);
+
+      // Check whether remote has a valid, newer review state
+      const localIsReviewed = loc.status && loc.status !== CANDIDATE_STATUS.PENDING_REVIEW;
+      const remoteIsReviewed = rem.status && rem.status !== CANDIDATE_STATUS.PENDING_REVIEW;
+
+      let useRemoteReview = false;
+      if (remoteIsReviewed) {
+        if (!localIsReviewed) {
+          useRemoteReview = true;
+        } else if (rem.reviewed_at && loc.reviewed_at) {
+          const remTime = new Date(rem.reviewed_at).getTime();
+          const locTime = new Date(loc.reviewed_at).getTime();
+          if (!isNaN(remTime) && !isNaN(locTime) && remTime > locTime) {
+            useRemoteReview = true;
+          }
+        } else if (rem.reviewed_at && !loc.reviewed_at) {
+          useRemoteReview = true;
+        }
+      }
+
+      // Merge: Remote is authoritative for metadata/crawled fields,
+      // while local review decision/history is preserved unless remote is demonstrably newer.
+      const merged = {
+        ...loc,
+        ...rem,
+        id: loc.id || rem.id,
+        first_discovered_at: loc.first_discovered_at || rem.first_discovered_at,
+        status: useRemoteReview ? rem.status : loc.status,
+        admin_notes: useRemoteReview ? (rem.admin_notes ?? loc.admin_notes) : (loc.admin_notes ?? rem.admin_notes),
+        rejection_reason: useRemoteReview ? (rem.rejection_reason ?? loc.rejection_reason) : (loc.rejection_reason ?? rem.rejection_reason),
+        reviewed_by: useRemoteReview ? (rem.reviewed_by ?? loc.reviewed_by) : (loc.reviewed_by ?? rem.reviewed_by),
+        reviewed_at: useRemoteReview ? (rem.reviewed_at ?? loc.reviewed_at) : (loc.reviewed_at ?? rem.reviewed_at),
+        published_gig_id: useRemoteReview ? (rem.published_gig_id ?? loc.published_gig_id) : (loc.published_gig_id ?? rem.published_gig_id)
+      };
+
+      const normalizedMerged = createCandidate(merged);
+      mergedMap.set(loc.id, normalizedMerged);
+    } else {
+      // Brand new remote candidate
+      if (rem.id) {
+        matchedRemoteIds.add(rem.id);
+      }
+      mergedMap.set(rem.id, rem);
+    }
+  }
+
+  // Preserve all existing local candidates, replacing matched ones with their merged version
+  const result = [];
+  const emittedIds = new Set();
+
+  for (const loc of localList) {
+    if (!loc || !loc.id) continue;
+    if (mergedMap.has(loc.id)) {
+      const merged = mergedMap.get(loc.id);
+      if (!emittedIds.has(merged.id)) {
+        result.push(merged);
+        emittedIds.add(merged.id);
+      }
+    } else {
+      if (!emittedIds.has(loc.id)) {
+        result.push(createCandidate(loc));
+        emittedIds.add(loc.id);
+      }
+    }
+  }
+
+  // Append newly discovered remote candidates
+  for (const [id, remCandidate] of mergedMap.entries()) {
+    if (!emittedIds.has(id) && !emittedIds.has(remCandidate.id)) {
+      result.push(remCandidate);
+      emittedIds.add(id);
+      if (remCandidate.id) emittedIds.add(remCandidate.id);
+    }
+  }
+
+  return result;
 }
 
 export const GIG_CANDIDATES_TABLE = 'gig_candidates';
@@ -118,12 +251,14 @@ export async function fetchCandidateQueue(options = {}) {
 
         if (!error && Array.isArray(data) && data.length > 0) {
           const mapped = data.map(createCandidate);
-          saveLocalCandidates(mapped);
-          mapped.syncSuccess = true;
-          mapped.syncStatus = 'success';
-          mapped.syncSource = 'supabase';
-          mapped.isFallback = false;
-          return mapped;
+          const currentLocal = loadLocalCandidates();
+          const reconciled = reconcileCandidates(currentLocal, mapped);
+          saveLocalCandidates(reconciled);
+          reconciled.syncSuccess = true;
+          reconciled.syncStatus = 'success';
+          reconciled.syncSource = 'supabase';
+          reconciled.isFallback = false;
+          return reconciled;
         } else if (error && (error.code === '42501' || /permission denied/i.test(error.message))) {
           directSupabaseDenied = true;
         }
@@ -175,12 +310,14 @@ export async function fetchCandidateQueue(options = {}) {
 
           if (candidateList.length > 0) {
             const mapped = candidateList.map(createCandidate);
-            saveLocalCandidates(mapped);
-            mapped.syncSuccess = true;
-            mapped.syncStatus = 'success';
-            mapped.syncSource = 'api';
-            mapped.isFallback = false;
-            return mapped;
+            const currentLocal = loadLocalCandidates();
+            const reconciled = reconcileCandidates(currentLocal, mapped);
+            saveLocalCandidates(reconciled);
+            reconciled.syncSuccess = true;
+            reconciled.syncStatus = 'success';
+            reconciled.syncSource = 'api';
+            reconciled.isFallback = false;
+            return reconciled;
           } else {
             const local = loadLocalCandidates();
             local.syncSuccess = false;
@@ -737,7 +874,9 @@ export async function runLiveDiscovery(options = {}) {
 
     if (data.success && Array.isArray(data.candidates)) {
       const mapped = data.candidates.map(createCandidate);
-      saveLocalCandidates(mapped);
+      const currentLocal = loadLocalCandidates();
+      const reconciled = reconcileCandidates(currentLocal, mapped);
+      saveLocalCandidates(reconciled);
       return {
         success: true,
         jobId: data.jobId || null,
@@ -749,10 +888,10 @@ export async function runLiveDiscovery(options = {}) {
           uncertain: 0,
           newly_saved: mapped.length,
           updated: 0,
-          total_pending: mapped.filter(c => c.status === CANDIDATE_STATUS.PENDING_REVIEW).length,
-          total_store: mapped.length
+          total_pending: reconciled.filter(c => c.status === CANDIDATE_STATUS.PENDING_REVIEW).length,
+          total_store: reconciled.length
         },
-        candidates: mapped
+        candidates: reconciled
       };
     }
 
@@ -830,6 +969,43 @@ export async function fetchOperationalStatus() {
   } catch {}
 
   return fallback;
+}
+
+/**
+ * Fetches status of a specific discovery job (/api/discovery/status?jobId=...)
+ * @param {string} jobId
+ * @returns {Promise<object|null>} Job record or null
+ */
+export async function fetchJobStatus(jobId) {
+  if (!jobId || typeof fetch !== 'function') return null;
+
+  try {
+    const { headers } = await getAdminAuthHeader();
+    const res = await fetch(`/api/discovery/status?jobId=${encodeURIComponent(jobId)}`, { headers });
+    const ct = (res.headers && res.headers.get('content-type')) || '';
+    if (res.ok && (!ct || ct.includes('application/json'))) {
+      const data = await res.json();
+      if (data && data.success && data.job) {
+        return data.job;
+      }
+    }
+  } catch {
+    // API endpoint unreachable or client offline
+  }
+
+  // Direct Supabase query fallback if API endpoint is unreachable
+  try {
+    const { data: job, error } = await supabase
+      .from('discovery_jobs')
+      .select('*')
+      .eq('id', jobId)
+      .maybeSingle();
+    if (!error && job) {
+      return job;
+    }
+  } catch {}
+
+  return null;
 }
 
 

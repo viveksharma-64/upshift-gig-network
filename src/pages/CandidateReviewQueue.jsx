@@ -6,7 +6,8 @@ import {
   syncCandidateToServer,
   publishCandidateToGigs,
   runLiveDiscovery,
-  fetchOperationalStatus
+  fetchOperationalStatus,
+  fetchJobStatus
 } from '../discovery/candidateStore.js';
 import { CANDIDATE_STATUS, ACTIVITY_STATUS, normalizeActivityStatus } from '../discovery/types.js';
 import { getModuleLabel } from '../discovery/modules.js';
@@ -93,10 +94,108 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
       }
     });
     fetchOperationalStatus().then(status => {
-      if (active && status) setOperationalStatus(status);
+      if (active && status) {
+        setOperationalStatus(status);
+        if (status.last_discovery && (status.last_discovery.status === 'pending' || status.last_discovery.status === 'running')) {
+          setActiveJob(prev => prev || {
+            id: status.last_discovery.id || status.last_discovery.job_id,
+            status: status.last_discovery.status,
+            counts: status.last_discovery.result_summary || status.last_discovery.counts || null,
+            message: status.last_discovery.message || null
+          });
+        }
+      }
     }).catch(() => {});
     return () => { active = false; };
   }, []);
+
+  // Poll asynchronous discovery jobs while pending or running
+  useEffect(() => {
+    const jobId = activeJob?.id;
+    const currentStatus = activeJob?.status;
+    if (!jobId || (currentStatus !== 'pending' && currentStatus !== 'running')) {
+      return;
+    }
+
+    let cancelled = false;
+    let timerId = null;
+
+    const pollJobStatus = async () => {
+      try {
+        const job = await fetchJobStatus(jobId);
+        if (cancelled || !job) {
+          if (!cancelled) {
+            timerId = setTimeout(pollJobStatus, 3000);
+          }
+          return;
+        }
+
+        const nextStatus = job.status;
+
+        if (nextStatus === 'succeeded') {
+          // Authoritative queue refresh upon successful discovery run
+          const freshQueue = await fetchCandidateQueue();
+          if (!cancelled) {
+            if (Array.isArray(freshQueue) && freshQueue.length > 0) {
+              setCandidates(freshQueue);
+            }
+            setActiveJob(prev => (prev?.id === jobId ? { ...prev, ...job } : prev));
+
+            const summary = job.result_summary || {};
+            const savedCount = summary.newly_saved !== undefined ? summary.newly_saved : (summary.saved_to_queue ?? 0);
+            const fetchedCount = summary.fetched ?? summary.total_fetched ?? 0;
+            const relevantCount = summary.relevant ?? summary.total_relevant ?? 0;
+            const pendingCount = summary.total_pending ?? summary.pending_count ?? 0;
+
+            setActionSuccessMsg(
+              `⚡ Discovery job ${job.id} succeeded: ${savedCount} new candidates saved (${fetchedCount} fetched, ${relevantCount} relevant). Total Pending: ${pendingCount}.`
+            );
+
+            fetchOperationalStatus().then(st => {
+              if (!cancelled && st) setOperationalStatus(st);
+            }).catch(() => {});
+          }
+          return;
+        }
+
+        if (nextStatus === 'failed') {
+          if (!cancelled) {
+            setActiveJob(prev => (prev?.id === jobId ? { ...prev, ...job } : prev));
+            const errMsg = job.error_message || 'Discovery job failed during execution on runner.';
+            setActionErrorMsg(`Discovery job ${job.id} failed: ${errMsg}. Preserved existing candidate listings.`);
+          }
+          return;
+        }
+
+        if (nextStatus === 'cancelled') {
+          if (!cancelled) {
+            setActiveJob(prev => (prev?.id === jobId ? { ...prev, ...job } : prev));
+            setActionWarningMsg(`Discovery job ${job.id} was cancelled.`);
+          }
+          return;
+        }
+
+        // Job still running or pending
+        if (!cancelled) {
+          if (nextStatus !== currentStatus) {
+            setActiveJob(prev => (prev?.id === jobId ? { ...prev, ...job } : prev));
+          }
+          timerId = setTimeout(pollJobStatus, 3000);
+        }
+      } catch {
+        if (!cancelled) {
+          timerId = setTimeout(pollJobStatus, 3000);
+        }
+      }
+    };
+
+    timerId = setTimeout(pollJobStatus, 1500);
+
+    return () => {
+      cancelled = true;
+      if (timerId) clearTimeout(timerId);
+    };
+  }, [activeJob?.id, activeJob?.status]);
 
   // Modal inspection & edit states
   const [inspectingCandidate, setInspectingCandidate] = useState(null);
@@ -189,7 +288,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
         if (res.jobId) {
           setActiveJob({
             id: res.jobId,
-            status: res.status || 'succeeded',
+            status: res.status || (res.isAsync ? 'pending' : 'succeeded'),
             counts: res.counts || null,
             message: res.message || null
           });
