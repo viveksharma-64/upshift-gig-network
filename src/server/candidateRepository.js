@@ -310,25 +310,32 @@ export class SupabaseCandidateRepository {
       // If table query fails, continue with empty existing map
     }
 
-    let inserted = 0;
-    let updated = 0;
-    const recordsToUpsert = [];
+    // Deduplicate records by ID within the batch to prevent PostgreSQL error:
+    // "ON CONFLICT DO UPDATE command cannot affect row a second time"
+    const batchMap = new Map();
 
     for (const item of newCandidates) {
+      if (!item) continue;
       const formatted = formatCandidateForDb(item);
-      if (existingMap.has(formatted.id)) {
-        const prev = existingMap.get(formatted.id);
+      if (!formatted.id) continue;
+
+      const inBatch = batchMap.get(formatted.id);
+      const existing = existingMap.get(formatted.id);
+      const prev = inBatch || existing;
+
+      if (prev) {
         const isDefaultReingestion = formatted.status === CANDIDATE_STATUS.PENDING_REVIEW && prev.status !== CANDIDATE_STATUS.PENDING_REVIEW;
-        const targetStatus = isDefaultReingestion ? prev.status : formatted.status;
-        recordsToUpsert.push({
+        const targetStatus = isDefaultReingestion ? prev.status : (formatted.status || prev.status);
+        batchMap.set(formatted.id, {
+          ...prev,
           ...formatted,
           status: targetStatus,
           admin_notes: prev.admin_notes || formatted.admin_notes,
           rejection_reason: prev.rejection_reason || formatted.rejection_reason,
-          reviewed_by: prev.reviewed_by,
-          reviewed_at: prev.reviewed_at,
-          published_gig_id: prev.published_gig_id,
-          first_discovered_at: prev.first_discovered_at,
+          reviewed_by: prev.reviewed_by || formatted.reviewed_by,
+          reviewed_at: prev.reviewed_at || formatted.reviewed_at,
+          published_gig_id: prev.published_gig_id || formatted.published_gig_id,
+          first_discovered_at: prev.first_discovered_at || formatted.first_discovered_at,
           last_checked_at: new Date().toISOString(),
           referral_id: prev.referral_id || formatted.referral_id || '',
           referral_url: prev.referral_url || formatted.referral_url || '',
@@ -341,15 +348,21 @@ export class SupabaseCandidateRepository {
           llm_evaluation: formatted.llm_evaluation || prev.llm_evaluation,
           updated_at: new Date().toISOString()
         });
-        updated++;
       } else {
-        recordsToUpsert.push({
+        batchMap.set(formatted.id, {
           ...formatted,
           status: CANDIDATE_STATUS.PENDING_REVIEW,
           updated_at: new Date().toISOString()
         });
-        inserted++;
       }
+    }
+
+    const recordsToUpsert = Array.from(batchMap.values());
+    let inserted = 0;
+    let updated = 0;
+    for (const rec of recordsToUpsert) {
+      if (existingMap.has(rec.id)) updated++;
+      else inserted++;
     }
 
     let records = recordsToUpsert;

@@ -1048,6 +1048,66 @@ test('Production Architecture & Scheduled Automation Suite', async (t) => {
     assert.ok(dashboardSrc.includes('Published Gigs'), 'Published Gigs section in Dashboard must be preserved');
     assert.ok(dashboardSrc.includes('totalPublishedGigsCount'), 'Published Gigs sidebar count must be preserved');
   });
+
+  await t.test('25. SupabaseCandidateRepository deduplicates candidate batch by ID to prevent ON CONFLICT DO UPDATE errors', async () => {
+    let capturedUpsertRecords = null;
+    let upsertCallCount = 0;
+
+    const mockSupabase = {
+      from(table) {
+        assert.equal(table, 'gig_candidates');
+        return {
+          select(cols) {
+            return {
+              in: async (field, ids) => ({
+                data: [], // empty existing table
+                error: null
+              })
+            };
+          },
+          upsert(records, options) {
+            upsertCallCount++;
+            capturedUpsertRecords = records;
+            assert.equal(options?.onConflict, 'id');
+            // Check for duplicate IDs in the batch being sent to PostgreSQL
+            const seenIds = new Set();
+            for (const r of records) {
+              if (seenIds.has(r.id)) {
+                // This is the exact condition that triggers PostgreSQL error:
+                // "ON CONFLICT DO UPDATE command cannot affect row a second time"
+                return Promise.resolve({
+                  data: null,
+                  error: { message: 'ON CONFLICT DO UPDATE command cannot affect row a second time' }
+                });
+              }
+              seenIds.add(r.id);
+            }
+            return Promise.resolve({ data: records, error: null });
+          }
+        };
+      }
+    };
+
+    const repo = new SupabaseCandidateRepository(mockSupabase);
+
+    // Pass batch containing 3 records, 2 of which have the duplicate ID 'cand-dup-001'
+    const duplicateBatch = [
+      { id: 'cand-dup-001', title: 'Listing First', organization: 'Org A' },
+      { id: 'cand-unique-002', title: 'Listing Unique', organization: 'Org B' },
+      { id: 'cand-dup-001', title: 'Listing Duplicate Re-discovery', organization: 'Org A Updated' }
+    ];
+
+    const result = await repo.saveBatch(duplicateBatch);
+
+    assert.equal(upsertCallCount, 1, 'Should successfully complete upsert in 1 attempt without conflict error');
+    assert.equal(capturedUpsertRecords.length, 2, 'Should deduplicate batch to 2 unique records before sending to PostgreSQL');
+    const idsInUpsert = capturedUpsertRecords.map(r => r.id);
+    assert.deepEqual(idsInUpsert.sort(), ['cand-dup-001', 'cand-unique-002'].sort());
+    // Merged record contains updated data from duplicate
+    const dupRec = capturedUpsertRecords.find(r => r.id === 'cand-dup-001');
+    assert.equal(dupRec.title, 'Listing Duplicate Re-discovery');
+    assert.equal(result.inserted, 2);
+  });
 });
 
 

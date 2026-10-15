@@ -318,8 +318,16 @@ export class DiscoveryPipeline {
       }
     }
 
+    // Deduplicate candidates by ID before batch save to ensure unique records
+    const uniqueCandidatesMap = new Map();
+    for (const cand of processedCandidates) {
+      if (!cand || !cand.id) continue;
+      uniqueCandidatesMap.set(cand.id, cand);
+    }
+    const candidatesToSave = Array.from(uniqueCandidatesMap.values());
+
     // Save batch to repository
-    const saveStats = await this.repository.saveBatch(processedCandidates);
+    const saveStats = await this.repository.saveBatch(candidatesToSave);
 
     console.log(`[DiscoveryPipeline] Cycle complete! Processed: ${processedCandidates.length}, Duplicates: ${duplicatesCount}, Total in store: ${saveStats.total}`);
 
