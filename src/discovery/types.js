@@ -3,6 +3,9 @@
  */
 
 import { normalizeHtmlToText } from './textNormalizer.js';
+import { LINK_TYPE, LINK_STATUS, analyzeUrlStructure } from './urlClassifier.js';
+
+export { LINK_TYPE, LINK_STATUS, analyzeUrlStructure };
 
 export const CANDIDATE_STATUS = {
   PENDING_REVIEW: 'pending_review',
@@ -131,10 +134,21 @@ export function createCandidate(data = {}) {
     source_type: data.source_type || SOURCE_TYPE.FIXTURE,
     source_listing_id: data.source_listing_id || null,
     
-    // URLs
+    // URLs: distinct source, opportunity, and application endpoints
     original_url: data.original_url || '',
     canonical_url: data.canonical_url || data.original_url || '',
-    application_url: data.application_url || data.original_url || '',
+    opportunity_url: data.opportunity_url || data.canonical_url || data.original_url || '',
+    application_url: data.application_url !== undefined ? data.application_url : '',
+    source_url: data.source_url || data.original_url || '',
+    resolved_url: data.resolved_url || data.opportunity_url || data.original_url || '',
+
+    // Link Verification & Qualification Metadata
+    link_type: data.link_type || LINK_TYPE.OPPORTUNITY_PAGE,
+    link_status: data.link_status || LINK_STATUS.VERIFIED,
+    link_evidence: Array.isArray(data.link_evidence) ? data.link_evidence : [],
+    is_gig: data.is_gig !== undefined ? Boolean(data.is_gig) : true,
+    gig_type: data.gig_type || 'freelance',
+    is_conventional_job: Boolean(data.is_conventional_job),
     
     // Core listing fields
     title: normalizeHtmlToText(data.title || ''),

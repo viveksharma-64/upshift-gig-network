@@ -16,6 +16,7 @@ import { DiscoveryPipeline } from './pipeline.js';
 import { FixtureDiscoveryProvider } from './providers/fixtureProvider.js';
 import { RssDiscoveryProvider } from './providers/rssProvider.js';
 import { PublicApiDiscoveryProvider } from './providers/publicApiProvider.js';
+import { FreelancerDiscoveryProvider } from './providers/freelancerProvider.js';
 import {
   defaultCandidateRepository,
   SupabaseCandidateRepository,
@@ -126,7 +127,7 @@ async function main() {
   const effectiveLimit = activeJob?.params?.limit || options.limit;
 
   const selectedProviders = [];
-  if (effectiveSource === 'fixtures' || effectiveSource === 'all') {
+  if (effectiveSource === 'fixtures') {
     selectedProviders.push(new FixtureDiscoveryProvider());
   }
   if (effectiveSource === 'rss' || effectiveSource === 'all') {
@@ -134,6 +135,9 @@ async function main() {
   }
   if (effectiveSource === 'api' || effectiveSource === 'all') {
     selectedProviders.push(new PublicApiDiscoveryProvider());
+  }
+  if (effectiveSource === 'freelancer' || (effectiveSource === 'all' && process.env?.FREELANCER_OAUTH_TOKEN)) {
+    selectedProviders.push(new FreelancerDiscoveryProvider());
   }
 
   const pipeline = new DiscoveryPipeline({
@@ -188,6 +192,12 @@ async function main() {
     console.log(` - Re-checked     : ${stats.updated}`);
     console.log(` - Duplicates     : ${stats.duplicates}`);
     console.log(` - Store Total    : ${stats.total}`);
+    if (stats.providerStats) {
+      console.log('\n Per-Provider Breakdown:');
+      for (const [pName, pStat] of Object.entries(stats.providerStats)) {
+        console.log(`   • [${pName}] Fetched: ${pStat.fetched} | Accepted: ${pStat.accepted} | Rejected: ${pStat.rejected} | Uncertain: ${pStat.uncertain} | Duplicate: ${pStat.duplicate} | Saved: ${pStat.saved}`);
+      }
+    }
     console.log('====================================================\n');
   } catch (err) {
     if (heartbeatTimer) clearInterval(heartbeatTimer);

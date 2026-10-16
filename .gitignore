@@ -43,6 +43,5 @@ data/notifications.json
 data/discovery_jobs.json
 data/test_*
 test_output*
-
-
-
+coverage/
+*.lcov

@@ -9,6 +9,7 @@ import { defaultNotificationService } from '../server/notifications.js';
 import { normalizeCanonicalUrl, normalizeTextKey, generateDeduplicationKey } from '../server/deduplication.js';
 
 import { normalizeHtmlToText } from './textNormalizer.js';
+import { analyzeUrlStructure } from './urlClassifier.js';
 
 // Embedded initial candidates from local discovery store
 import candidatesData from '../../data/candidates.json' with { type: 'json' };
@@ -475,6 +476,14 @@ export function validateForPublishing(candidate) {
     return { valid: false, error: 'Cannot publish candidate marked irrelevant to UpShift tracks.' };
   }
 
+  // 2c. Gig Qualification Gate (Phase 2A & Acceptance Criteria)
+  if (candidate.is_gig === false || candidate.is_conventional_job === true || candidate.gig_type === 'conventional_job') {
+    return { valid: false, error: 'Cannot publish conventional job vacancy or non-gig opportunity.' };
+  }
+  if (candidate.gig_type === 'uncertain' && !candidate.override_uncertain_activity) {
+    return { valid: false, error: 'Cannot publish candidate with uncertain gig classification without explicit admin review verification.' };
+  }
+
   // 3. Mandatory Referral Gate (FRD Section 15, REF-03 & Scenario T12)
   if (candidate.referral_required) {
     const hasReferral = Boolean(
@@ -514,6 +523,11 @@ export function validateForPublishing(candidate) {
     };
   }
 
+  // 4b. Link Status Gate (Reject closed or failed destinations)
+  if (candidate.link_status === 'closed' || candidate.link_status === 'failed') {
+    return { valid: false, error: `Cannot publish candidate: Opportunity destination link is confirmed ${candidate.link_status}.` };
+  }
+
   // 5. Validate title
   if (!candidate.title || candidate.title.trim().length < 5) {
     return { valid: false, error: 'Listing title is missing or too short.' };
@@ -525,10 +539,31 @@ export function validateForPublishing(candidate) {
     return { valid: false, error: `Invalid track "${candidate.track_id}". Must be one of M1-M6.` };
   }
 
-  // 7. Validate URL
-  const url = candidate.application_url || candidate.original_url;
+  // 7. Validate URL, Reject Generic Landing Pages & Fabricated Domains (Phase 2B & 2C)
+  const url = candidate.application_url || candidate.opportunity_url || candidate.original_url;
   if (!url || !url.startsWith('http')) {
     return { valid: false, error: 'A valid HTTP(S) application or source URL is required.' };
+  }
+
+  // Reject confirmed placeholder or nonexistent test domains
+  const KNOWN_FABRICATED_DOMAINS = [
+    'growthhire.co',
+    'creativegigs.io',
+    'nocodeworks.com',
+    'remotevideo.org',
+    'devmatch.tech',
+    'dataworks.ai'
+  ];
+  if (KNOWN_FABRICATED_DOMAINS.some(d => url.includes(d))) {
+    return { valid: false, error: 'Cannot publish candidate: Opportunity URL points to confirmed placeholder or nonexistent test domain.' };
+  }
+
+  const structure = analyzeUrlStructure(url);
+  if (structure.isHomepage) {
+    return { valid: false, error: 'Cannot publish candidate: URL points to a generic company homepage rather than a specific opportunity.' };
+  }
+  if (structure.isSearchPage) {
+    return { valid: false, error: 'Cannot publish candidate: URL points to a general job search or category directory rather than a specific opportunity.' };
   }
 
   return { valid: true };
@@ -601,6 +636,28 @@ export async function recheckOpportunityAvailability(candidate, options = {}) {
             last_checked_at: new Date().toISOString()
           }
         };
+      }
+
+      if (res.ok) {
+        const bodyText = (await res.text()).slice(0, 5000).toLowerCase();
+        if (
+          bodyText.includes('this job is no longer available') ||
+          bodyText.includes('position has been filled') ||
+          bodyText.includes('job posting expired') ||
+          bodyText.includes('applications are now closed') ||
+          bodyText.includes('no longer accepting applications') ||
+          bodyText.includes('this position is closed')
+        ) {
+          return {
+            healthy: false,
+            reason: 'Target page content indicates opportunity is closed or expired.',
+            candidate: {
+              ...candidate,
+              activity_status: ACTIVITY_STATUS.STOPPED,
+              last_checked_at: new Date().toISOString()
+            }
+          };
+        }
       }
     } catch {
       // In offline / restricted sandbox environments, treat network errors gracefully
@@ -721,14 +778,14 @@ export async function publishCandidateToGigs(candidate, userProfileOrReviewer = 
       const updatePayload = {
         title: normalizeHtmlToText(candidate.title),
         track_id: candidate.track_id,
-        payment_amount: candidate.payment_amount || existingMatch.payment_amount || '$25 - $40 / hour',
+        payment_amount: candidate.payment_amount || existingMatch.payment_amount || 'Unspecified',
         compensation_type: candidate.compensation_type || existingMatch.compensation_type || 'hourly',
         min_amount: parseFloat(candidate.min_amount) || existingMatch.min_amount || 0,
         max_amount: parseFloat(candidate.max_amount) || existingMatch.max_amount || 0,
         currency: candidate.currency || existingMatch.currency || 'USD',
         priority: candidate.review_priority >= 75 ? 'Featured' : (existingMatch.priority || 'Standard'),
         is_featured: candidate.review_priority >= 75 || Boolean(existingMatch.is_featured),
-        short_description: normalizeHtmlToText((candidate.short_description || candidate.description || existingMatch.short_description || `${candidate.title} at ${candidate.organization}`).slice(0, 200)),
+        short_description: normalizeHtmlToText((candidate.short_description || candidate.description || existingMatch.short_description || `${candidate.title} at ${candidate.organization || 'Client'}`).slice(0, 200)),
         overview: normalizeHtmlToText(candidate.overview || candidate.description || existingMatch.overview || ''),
         responsibilities: normalizeHtmlToText(candidate.responsibilities || existingMatch.responsibilities || ''),
         requirements: normalizeHtmlToText(candidate.requirements || existingMatch.requirements || ''),
@@ -751,7 +808,9 @@ export async function publishCandidateToGigs(candidate, userProfileOrReviewer = 
       external_gig_id: externalGigId,
       title: normalizeHtmlToText(candidate.title),
       track_id: candidate.track_id,
-      payment_amount: candidate.payment_amount || '$25 - $40 / hour',
+      organization: candidate.organization || 'Independent Client',
+      company: candidate.organization || candidate.company || 'Independent Client',
+      payment_amount: candidate.payment_amount || 'Unspecified',
       compensation_type: candidate.compensation_type || 'hourly',
       min_amount: parseFloat(candidate.min_amount) || 0,
       max_amount: parseFloat(candidate.max_amount) || 0,
@@ -759,7 +818,12 @@ export async function publishCandidateToGigs(candidate, userProfileOrReviewer = 
       priority: candidate.review_priority >= 75 ? 'Featured' : 'Standard',
       is_featured: candidate.review_priority >= 75,
       origin_url: originUrl,
-      short_description: normalizeHtmlToText((candidate.short_description || candidate.description || `${candidate.title} at ${candidate.organization}`).slice(0, 200)),
+      opportunity_url: candidate.opportunity_url || originUrl,
+      application_url: candidate.application_url || '',
+      link_type: candidate.link_type || 'opportunity_page',
+      link_status: candidate.link_status || 'verified',
+      link_evidence: candidate.link_evidence || '',
+      short_description: normalizeHtmlToText((candidate.short_description || candidate.description || `${candidate.title} at ${candidate.organization || 'Client'}`).slice(0, 200)),
       overview: normalizeHtmlToText(candidate.overview || candidate.description || ''),
       responsibilities: normalizeHtmlToText(candidate.responsibilities || ''),
       requirements: normalizeHtmlToText(candidate.requirements || ''),

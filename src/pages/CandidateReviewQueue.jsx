@@ -10,10 +10,9 @@ import {
   fetchJobStatus
 } from '../discovery/candidateStore.js';
 import { CANDIDATE_STATUS, ACTIVITY_STATUS, normalizeActivityStatus } from '../discovery/types.js';
-import { getModuleLabel } from '../discovery/modules.js';
 import { exportGigsTo19ColCSV, downloadCSV } from '../discovery/csvExport.js';
 import { normalizeHtmlToText } from '../discovery/textNormalizer.js';
-import { isSafeHttpUrl, sanitizeHref } from '../discovery/urlValidator.js';
+import { isSafeHttpUrl } from '../discovery/urlValidator.js';
 
 export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) {
   const [candidates, setCandidates] = useState(loadLocalCandidates);
@@ -85,6 +84,15 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
 
   const [activityFilter, setActivityFilter] = useState('all');
   const [sortBy, setSortBy] = useState('priority'); // 'priority', 'confidence', 'newest', 'completeness'
+
+  // Modal inspection & edit states
+  const [inspectingCandidate, setInspectingCandidate] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editFormData, setEditFormData] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionSuccessMsg, setActionSuccessMsg] = useState('');
+  const [actionWarningMsg, setActionWarningMsg] = useState('');
+  const [actionErrorMsg, setActionErrorMsg] = useState('');
 
   // Fetch candidates from persistent server API on mount
   useEffect(() => {
@@ -197,15 +205,6 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
       if (timerId) clearTimeout(timerId);
     };
   }, [activeJob?.id, activeJob?.status]);
-
-  // Modal inspection & edit states
-  const [inspectingCandidate, setInspectingCandidate] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editFormData, setEditFormData] = useState(null);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [actionSuccessMsg, setActionSuccessMsg] = useState('');
-  const [actionWarningMsg, setActionWarningMsg] = useState('');
-  const [actionErrorMsg, setActionErrorMsg] = useState('');
 
   // Keyboard Escape listener to close inspect modal
   useEffect(() => {
@@ -651,6 +650,27 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
           >
             <span>🔄</span> {isSyncing ? 'Syncing...' : 'Sync Store'}
           </button>
+          <button
+            id="export-approved-btn"
+            onClick={handleExportApproved}
+            title="Export approved candidates to 19-column CSV"
+            style={{
+              background: '#ffffff',
+              border: '1px solid #cbd5e1',
+              borderRadius: '20px',
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: '700',
+              color: '#475569',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+            }}
+          >
+            <span>📥</span> Export CSV
+          </button>
         </div>
       </div>
 
@@ -717,7 +737,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
           )}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+        <div className="operational-status-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', marginBottom: '20px' }}>
           {/* Schedule 1: Opportunity Health Monitor */}
           <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
@@ -753,20 +773,20 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
       </div>
 
       {/* Filter and Search Bar */}
-      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px', marginBottom: '14px', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+      <div className="discovery-filter-bar">
         <input
           type="text"
           placeholder="Search candidates by title, company, skills..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          style={{ flex: '1 1 240px', minWidth: '200px', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13.5px' }}
+          className="discovery-search-input"
         />
 
         {/* Status Filter */}
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          style={{ padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', background: '#fff' }}
+          className="discovery-filter-select"
         >
           <option value="pending_review">Status: Pending Review ({counts.pending})</option>
           <option value="needs_recheck">Status: Needs Recheck ({counts.recheck})</option>
@@ -799,7 +819,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
         <select
           value={activityFilter}
           onChange={(e) => setActivityFilter(e.target.value)}
-          style={{ padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', background: '#fff' }}
+          className="discovery-filter-select"
         >
           <option value="all">All Activity States</option>
           <option value="Active">🟢 Active Only</option>
@@ -812,7 +832,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
-          style={{ padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', background: '#fff' }}
+          className="discovery-filter-select"
         >
           <option value="priority">Sort: Review Priority (High to Low)</option>
           <option value="confidence">Sort: Activity Confidence</option>
@@ -829,7 +849,6 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
         style={{
           display: 'flex',
           gap: '8px',
-          flexWrap: 'wrap',
           alignItems: 'center',
           marginBottom: '24px',
           padding: '2px 0',
@@ -882,7 +901,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
           <p style={{ fontSize: '13px', margin: 0 }}>Try clearing filters or run an ingestion cycle using the worker CLI (`npm run worker:discover`).</p>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '18px' }}>
+        <div className="candidate-cards-grid">
           {filteredCandidates.map(c => {
             const isPending = c.status === CANDIDATE_STATUS.PENDING_REVIEW || c.status === CANDIDATE_STATUS.NEEDS_RECHECK;
             const isPaused = c.status === CANDIDATE_STATUS.PAUSED;
@@ -915,12 +934,35 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                 <div>
                   {/* Header badges */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', gap: '8px', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                       <span style={{ background: '#fef2f2', color: '#e31b23', fontWeight: '800', fontSize: '11px', padding: '2px 8px', borderRadius: '6px' }}>
                         {c.track_id}
                       </span>
                       <span style={{ background: activityBg, color: activityColor, fontWeight: '700', fontSize: '11px', padding: '2px 8px', borderRadius: '6px' }}>
                         ● {normActivity.toUpperCase()} ({c.activity_confidence}%)
+                      </span>
+                      {c.is_conventional_job ? (
+                        <span style={{ background: '#fee2e2', color: '#b91c1c', fontWeight: '700', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
+                          🚫 Corporate Job
+                        </span>
+                      ) : c.is_gig ? (
+                        <span style={{ background: '#f0fdf4', color: '#15803d', fontWeight: '700', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
+                          ✅ Confirmed Gig ({c.gig_type || 'freelance'})
+                        </span>
+                      ) : (
+                        <span style={{ background: '#fef3c7', color: '#92400e', fontWeight: '700', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
+                          ⚠️ Unconfirmed Work-Type
+                        </span>
+                      )}
+                      <span style={{
+                        background: c.link_type === 'direct_apply' ? '#dcfce7' : c.link_type === 'platform_login_required' ? '#fef3c7' : '#f1f5f9',
+                        color: c.link_type === 'direct_apply' ? '#15803d' : c.link_type === 'platform_login_required' ? '#b45309' : '#475569',
+                        fontWeight: '700',
+                        fontSize: '10px',
+                        padding: '2px 6px',
+                        borderRadius: '4px'
+                      }}>
+                        {c.link_type === 'direct_apply' ? '🎯 Direct Apply' : c.link_type === 'platform_login_required' ? '🔐 Login Req.' : '📄 Opp. Page'}
                       </span>
                       {c.referral_required && (
                         <span style={{ background: '#f0fdf4', color: '#16a34a', fontWeight: '700', fontSize: '10px', padding: '2px 6px', borderRadius: '4px', border: '1px solid #bbf7d0' }}>
@@ -948,10 +990,43 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                   </p>
 
                   {/* Compensation & Source */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#374151', padding: '8px 12px', background: '#f9fafb', borderRadius: '8px', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#374151', padding: '8px 12px', background: '#f9fafb', borderRadius: '8px', marginBottom: '8px' }}>
                     <span>💰 <strong>{c.payment_amount || 'Unspecified'}</strong></span>
                     <span>📡 {c.source_name}</span>
                   </div>
+
+                  {/* Opportunity Link Status */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: '#64748b', padding: '6px 10px', background: '#f8fafc', borderRadius: '6px', marginBottom: '8px', border: '1px solid #f1f5f9' }}>
+                    <span>
+                      Opportunity Link:{' '}
+                      <strong style={{ color: c.link_status === 'closed' ? '#dc2626' : c.link_status === 'uncertain' ? '#d97706' : '#16a34a' }}>
+                        {c.link_status === 'closed' ? 'Closed/Broken' : c.link_status === 'uncertain' ? 'Unchecked/Uncertain' : 'Live Page Verified'}
+                      </strong>
+                    </span>
+                    {isSafeHttpUrl(c.opportunity_url || c.canonical_url || c.original_url) && (
+                      <a
+                        href={c.opportunity_url || c.canonical_url || c.original_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: '#2563eb', textDecoration: 'none', fontWeight: '600' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Open Opp ↗
+                      </a>
+                    )}
+                  </div>
+
+                  {/* Pending Review Reason Banner */}
+                  {isPending && (
+                    <div style={{ background: '#fefce8', border: '1px solid #fef08a', borderRadius: '6px', padding: '6px 10px', fontSize: '11.5px', color: '#854d0e', marginBottom: '12px' }}>
+                      <span style={{ fontWeight: '700' }}>Pending Review: </span>
+                      {c.classification_reason ||
+                       (!c.is_gig ? 'Work arrangement unconfirmed (requires manual verification of freelance / contractor terms).' :
+                       normActivity === 'NEEDS REVIEW' ? 'Live activity unverified by automated scanner.' :
+                       c.has_conflict ? `Track classification conflict (${c.conflicting_tracks?.join(', ')}).` :
+                       'Awaiting admin verification before publication to learner catalog.')}
+                    </div>
+                  )}
 
                   {/* Duplicate warning flag */}
                   {c.is_duplicate && (
@@ -962,7 +1037,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                 </div>
 
                 {/* Card Actions */}
-                <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div className="candidate-card-footer">
                   <button
                     onClick={() => {
                       setInspectingCandidate(c);
@@ -973,12 +1048,12 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                         description: normalizeHtmlToText(c.description)
                       });
                     }}
-                    style={{ background: '#f3f4f6', color: '#374151', border: 'none', padding: '7px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                    className="btn-inspect-edit"
                   >
                     🔍 Inspect & Edit
                   </button>
 
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <div className="candidate-card-state-btns">
                     {isPending && (
                       <>
                         <button
@@ -1054,24 +1129,25 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
 
       {/* MODAL 1: Inspect & Edit Candidate Details */}
       {inspectingCandidate && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div style={{ background: '#fff', borderRadius: '16px', maxWidth: '800px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: '28px', position: 'relative' }}>
+        <div className="modal-overlay candidate-inspect-overlay" onClick={() => setInspectingCandidate(null)}>
+          <div className="modal-card candidate-inspect-card" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setInspectingCandidate(null)}
-              style={{ position: 'absolute', top: '20px', right: '20px', background: '#f3f4f6', border: 'none', borderRadius: '50%', width: '32px', height: '32px', fontSize: '16px', cursor: 'pointer' }}
+              className="modal-close-btn candidate-inspect-close"
+              aria-label="Close candidate dialog"
             >
               ✕
             </button>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
               <span style={{ background: '#fef2f2', color: '#e31b23', fontWeight: '800', fontSize: '12px', padding: '3px 8px', borderRadius: '6px' }}>
                 {inspectingCandidate.track_id}
               </span>
-              <h2 style={{ fontSize: '20px', fontWeight: '800', margin: 0, color: '#111827' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: '800', margin: 0, color: '#111827', wordBreak: 'break-word' }}>
                 {isEditing ? 'Edit Candidate Details' : inspectingCandidate.title}
               </h2>
             </div>
-            <p style={{ color: '#6b7280', fontSize: '13px', margin: '0 0 20px' }}>
+            <p style={{ color: '#6b7280', fontSize: '13px', margin: '0 0 20px', wordBreak: 'break-word' }}>
               Source: <strong>{inspectingCandidate.source_name}</strong> · Discovered: {inspectingCandidate.first_discovered_at?.split('T')[0]}
             </p>
 
@@ -1084,19 +1160,19 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                     type="text"
                     value={editFormData.title}
                     onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box' }}
                     required
                   />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div className="candidate-modal-grid-2">
                   <div>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '4px' }}>Organization</label>
                     <input
                       type="text"
                       value={editFormData.organization}
                       onChange={(e) => setEditFormData({ ...editFormData, organization: e.target.value })}
-                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box' }}
                       required
                     />
                   </div>
@@ -1106,7 +1182,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                     <select
                       value={editFormData.track_id}
                       onChange={(e) => setEditFormData({ ...editFormData, track_id: e.target.value })}
-                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box' }}
                     >
                       <option value="M1">M1 — AI Video / Reels</option>
                       <option value="M2">M2 — AI Design / Visual</option>
@@ -1118,14 +1194,14 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div className="candidate-modal-grid-2">
                   <div>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '4px' }}>Compensation</label>
                     <input
                       type="text"
                       value={editFormData.payment_amount}
                       onChange={(e) => setEditFormData({ ...editFormData, payment_amount: e.target.value })}
-                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box' }}
                     />
                   </div>
 
@@ -1135,7 +1211,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                       type="url"
                       value={editFormData.application_url}
                       onChange={(e) => setEditFormData({ ...editFormData, application_url: e.target.value })}
-                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box' }}
                       required
                     />
                   </div>
@@ -1153,7 +1229,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                       Mandatory Referral Gate (REF-03: Publishing blocked without referral)
                     </label>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
+                  <div className="candidate-referral-grid">
                     <div>
                       <label style={{ display: 'block', fontSize: '11.5px', fontWeight: '700', color: '#166534', marginBottom: '3px' }}>Referral ID / Tag</label>
                       <input
@@ -1161,7 +1237,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                         placeholder="e.g. UPSHIFT-M4-01"
                         value={editFormData.referral_id || ''}
                         onChange={(e) => setEditFormData({ ...editFormData, referral_id: e.target.value })}
-                        style={{ width: '100%', padding: '7px 10px', border: '1px solid #86efac', borderRadius: '6px', fontSize: '12px' }}
+                        style={{ width: '100%', padding: '7px 10px', border: '1px solid #86efac', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }}
                       />
                     </div>
                     <div>
@@ -1171,7 +1247,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                         placeholder="https://apply.example.com/?ref=upshift"
                         value={editFormData.referral_url || ''}
                         onChange={(e) => setEditFormData({ ...editFormData, referral_url: e.target.value })}
-                        style={{ width: '100%', padding: '7px 10px', border: '1px solid #86efac', borderRadius: '6px', fontSize: '12px' }}
+                        style={{ width: '100%', padding: '7px 10px', border: '1px solid #86efac', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }}
                       />
                     </div>
                   </div>
@@ -1183,11 +1259,11 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                     rows={4}
                     value={editFormData.description}
                     onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }}
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
                   />
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px', flexWrap: 'wrap' }}>
                   <button
                     type="button"
                     onClick={() => setIsEditing(false)}
@@ -1207,7 +1283,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
               /* Inspection View */
               <div>
                 {/* 5-Factor Score Cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '20px' }}>
+                <div className="candidate-score-grid">
                   <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
                     <div style={{ fontSize: '11px', color: '#6b7280', fontWeight: '700', textTransform: 'uppercase' }}>Activity Conf.</div>
                     <div style={{ fontSize: '20px', fontWeight: '800', color: '#16a34a' }}>{inspectingCandidate.activity_confidence}%</div>
@@ -1266,7 +1342,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
 
                 {/* Referral Configuration & Audit Box (REF-01, REF-04, REV-07) */}
                 <div style={{ background: inspectingCandidate.referral_required ? '#f0fdf4' : '#f8fafc', border: `1px solid ${inspectingCandidate.referral_required ? '#bbf7d0' : '#e2e8f0'}`, borderRadius: '10px', padding: '14px', marginBottom: '20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
                     <h4 style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', margin: 0 }}>
                       🏷️ Referral Configuration & Tracking
                     </h4>
@@ -1276,7 +1352,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                   </div>
                   <div style={{ fontSize: '12.5px', color: '#334155' }}>
                     <p style={{ margin: '4px 0' }}><strong>Referral ID:</strong> {inspectingCandidate.referral_id || 'None configured'}</p>
-                    <p style={{ margin: '4px 0' }}>
+                    <p style={{ margin: '4px 0', wordBreak: 'break-all' }}>
                       <strong>Referral URL:</strong>{' '}
                       {inspectingCandidate.referral_url ? (
                         isSafeHttpUrl(inspectingCandidate.referral_url) ? (
@@ -1311,42 +1387,155 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                 {/* Description & Requirements */}
                 <div style={{ marginBottom: '20px' }}>
                   <h4 style={{ fontSize: '14px', fontWeight: '700', marginBottom: '6px' }}>Listing Description</h4>
-                  <div style={{ fontSize: '13px', color: '#374151', lineHeight: '1.6', background: '#fafafa', padding: '14px', borderRadius: '8px', maxHeight: '180px', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+                  <div style={{ fontSize: '13px', color: '#374151', lineHeight: '1.6', background: '#fafafa', padding: '14px', borderRadius: '8px', maxHeight: '180px', overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                     {normalizeHtmlToText(inspectingCandidate.description || inspectingCandidate.overview || 'No description provided.')}
                   </div>
                 </div>
 
-                {/* Links */}
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-                  {isSafeHttpUrl(inspectingCandidate.application_url || inspectingCandidate.original_url) ? (
-                    <a
-                      href={inspectingCandidate.application_url || inspectingCandidate.original_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ fontSize: '13px', color: '#2563eb', fontWeight: '600', textDecoration: 'none' }}
-                    >
-                      🔗 View Application Link ↗
-                    </a>
-                  ) : (
-                    <span style={{ fontSize: '13px', color: '#94a3b8' }}>🔗 Application Link (None/Unsafe)</span>
-                  )}
-                  {isSafeHttpUrl(inspectingCandidate.original_url) ? (
-                    <a
-                      href={inspectingCandidate.original_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ fontSize: '13px', color: '#6b7280', textDecoration: 'none' }}
-                    >
-                      🌐 Original Listing ↗
-                    </a>
-                  ) : (
-                    <span style={{ fontSize: '13px', color: '#94a3b8' }}>🌐 Original Listing (None/Unsafe)</span>
-                  )}
+                {/* 1. Opportunity Link Verification Audit */}
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                    <h4 style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', margin: 0 }}>
+                      🔗 Opportunity Link Verification
+                    </h4>
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: '700',
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      background: inspectingCandidate.link_type === 'direct_apply' ? '#dcfce7' : inspectingCandidate.link_type === 'platform_login_required' ? '#fef3c7' : '#f1f5f9',
+                      color: inspectingCandidate.link_type === 'direct_apply' ? '#15803d' : inspectingCandidate.link_type === 'platform_login_required' ? '#b45309' : '#475569'
+                    }}>
+                      Endpoint: {inspectingCandidate.link_type === 'direct_apply' ? 'Direct Application' : inspectingCandidate.link_type === 'platform_login_required' ? 'Platform Login Required' : inspectingCandidate.link_type === 'opportunity_page' ? 'Specific Opportunity Page' : 'Unverified'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: '10px', fontSize: '12px' }}>
+                    <div>
+                      <strong style={{ color: '#334155' }}>Opportunity URL:</strong>{' '}
+                      {isSafeHttpUrl(inspectingCandidate.opportunity_url || inspectingCandidate.canonical_url || inspectingCandidate.original_url) ? (
+                        <a
+                          href={inspectingCandidate.opportunity_url || inspectingCandidate.canonical_url || inspectingCandidate.original_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: '#2563eb', wordBreak: 'break-all', fontWeight: '600' }}
+                        >
+                          {inspectingCandidate.opportunity_url || inspectingCandidate.canonical_url || inspectingCandidate.original_url} ↗
+                        </a>
+                      ) : (
+                        <span style={{ color: '#94a3b8' }}>None provided / unsafe</span>
+                      )}
+                    </div>
+
+                    <div>
+                      <strong style={{ color: '#334155' }}>Application / Task-Start URL:</strong>{' '}
+                      {inspectingCandidate.application_url && isSafeHttpUrl(inspectingCandidate.application_url) ? (
+                        <a
+                          href={inspectingCandidate.application_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: '#16a34a', fontWeight: '600', wordBreak: 'break-all' }}
+                        >
+                          {inspectingCandidate.application_url} ↗
+                        </a>
+                      ) : (
+                        <span style={{ color: '#64748b' }}>None verified (Application action accessed directly on opportunity page)</span>
+                      )}
+                    </div>
+
+                    {inspectingCandidate.resolved_url && inspectingCandidate.resolved_url !== (inspectingCandidate.opportunity_url || inspectingCandidate.original_url) && (
+                      <div>
+                        <strong style={{ color: '#334155' }}>Resolved Destination:</strong>{' '}
+                        <span style={{ color: '#475569', wordBreak: 'break-all' }}>{inspectingCandidate.resolved_url}</span>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <div>
+                        <strong style={{ color: '#334155' }}>Link Reachability:</strong>{' '}
+                        <span style={{
+                          color: inspectingCandidate.link_status === 'closed' ? '#dc2626' : inspectingCandidate.link_status === 'uncertain' ? '#d97706' : '#16a34a',
+                          fontWeight: '700'
+                        }}>
+                          {inspectingCandidate.link_status === 'closed' ? 'Closed/Broken' : inspectingCandidate.link_status === 'uncertain' ? 'Unchecked/Uncertain' : 'Live Page Reachable (Verified)'}
+                        </span>
+                        {inspectingCandidate.last_checked_at && (
+                          <span style={{ color: '#94a3b8', marginLeft: '6px' }}>
+                            (checked {inspectingCandidate.last_checked_at?.split('T')[0]})
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {inspectingCandidate.link_evidence && (
+                      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '8px 12px', fontSize: '11.5px', color: '#475569' }}>
+                        <strong>Link Audit Evidence:</strong> {inspectingCandidate.link_evidence}
+                      </div>
+                    )}
+
+                    <div style={{ fontSize: '11.5px', color: '#64748b', fontStyle: 'italic', background: '#f1f5f9', padding: '6px 10px', borderRadius: '4px' }}>
+                      ℹ️ Note: Webpage accessibility verifies destination reachability only; it does not confirm freelance or task-based qualification.
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Gig Qualification & Review Status Audit */}
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                    <h4 style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', margin: 0 }}>
+                      💼 Gig Qualification & Review Status
+                    </h4>
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: '700',
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      background: inspectingCandidate.is_conventional_job ? '#fee2e2' : inspectingCandidate.is_gig ? '#dcfce7' : '#fef3c7',
+                      color: inspectingCandidate.is_conventional_job ? '#b91c1c' : inspectingCandidate.is_gig ? '#15803d' : '#92400e'
+                    }}>
+                      {inspectingCandidate.is_conventional_job
+                        ? 'Corporate Job (Rejected)'
+                        : inspectingCandidate.is_gig
+                        ? `Confirmed Gig (${inspectingCandidate.gig_type || 'Freelance'})`
+                        : 'Unconfirmed Work-Type'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: '8px', fontSize: '12px' }}>
+                    <div>
+                      <strong style={{ color: '#334155' }}>Freelance / Task Work Confirmed:</strong>{' '}
+                      <span style={{ fontWeight: '700', color: inspectingCandidate.is_gig ? '#15803d' : inspectingCandidate.is_conventional_job ? '#b91c1c' : '#92400e' }}>
+                        {inspectingCandidate.is_gig
+                          ? `Yes — Confirmed ${inspectingCandidate.gig_type || 'Freelance / Task-based'}`
+                          : inspectingCandidate.is_conventional_job
+                          ? 'No — Rejected (Conventional Corporate Full-Time Position)'
+                          : 'No — Unconfirmed (Lacks explicit freelance, contractor, or milestone signals)'}
+                      </span>
+                    </div>
+
+                    <div>
+                      <strong style={{ color: '#334155' }}>Pending Review Rationale:</strong>{' '}
+                      <span style={{ color: '#475569' }}>
+                        {inspectingCandidate.classification_reason ||
+                         (!inspectingCandidate.is_gig
+                           ? 'Work arrangement unconfirmed. Requires human admin inspection of job description for contract/freelance terms before publishing.'
+                           : normalizeActivityStatus(inspectingCandidate.activity_status) === ACTIVITY_STATUS.NEEDS_REVIEW
+                           ? 'Automated activity check incomplete or ambiguous; requires link inspection.'
+                           : inspectingCandidate.has_conflict
+                           ? `Track fit conflict across ${inspectingCandidate.conflicting_tracks?.join(', ')}.`
+                           : 'Awaiting formal admin verification.')}
+                      </span>
+                    </div>
+
+                    <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '6px', padding: '8px 12px', fontSize: '11.5px', color: '#065f46', marginTop: '4px' }}>
+                      🔒 <strong>Learner Catalog Isolation:</strong> This listing is strictly quarantined in the staging store and <strong>cannot appear on the learner dashboard</strong> until an administrator explicitly reviews and approves it.
+                    </div>
+                  </div>
                 </div>
 
                 {/* Action Buttons in Modal */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #e5e7eb', paddingTop: '16px', flexWrap: 'wrap', gap: '10px' }}>
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                <div className="candidate-modal-footer">
+                  <div className="candidate-modal-actions-left">
                     <button
                       onClick={() => setIsEditing(true)}
                       style={{ background: '#f3f4f6', border: '1px solid #d1d5db', padding: '8px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
@@ -1379,7 +1568,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                     </button>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <div className="candidate-modal-actions-right">
                     <button
                       onClick={() => handleReject(inspectingCandidate)}
                       style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}

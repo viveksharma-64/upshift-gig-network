@@ -1,11 +1,29 @@
 /**
  * Public Remote Jobs API Discovery Provider
- * Integrates documented zero-cost public APIs (Remotive, Arbeitnow, Jobicy).
+ * Integrates documented zero-cost public APIs (Remotive, Arbeitnow, Jobicy, Working Nomads, RemoteOK, Himalayas).
+ *
+ * Provider Terms of Use & Compliance:
+ * 1. Remotive (remotive.com):
+ *    - Free public API (no credentials required).
+ *    - Terms require source attribution ("Remotive") and linking directly to the original listing URL.
+ *    - Strictly prohibits using the API to harvest candidate email addresses or gatekeeping listings behind proprietary signups.
+ * 2. Arbeitnow (arbeitnow.com):
+ *    - Creative Commons / open job board API (no credentials required).
+ *    - Requires preserving original listing URL and employer attribution.
+ * 3. Jobicy (jobicy.com):
+ *    - Free public JSON API. Permitted for job discovery; requires linking to Jobicy listing.
+ * 4. Working Nomads (workingnomads.com):
+ *    - Free exposed JSON API with direct application links where provided.
+ * 5. RemoteOK (remoteok.com):
+ *    - Free public API. Rate limit: 1 request/min recommended cache. Requires backlink attribution.
+ * 6. Himalayas (himalayas.app):
+ *    - Free public API. Requires direct links and company attribution.
  *
  * Implements FRD v1.0 Section 10 & 26:
- * - SRC-01: Approved external data sources
+ * - SRC-01: Approved zero-cost external data sources
  * - Genuine M1-M6 relevance filtering
  * - Strict T07 adherence: Missing posted date is never hallucinated or fabricated
+ * - Authentic URL mapping: opportunity_url, application_url, source_url (never fabricated)
  */
 
 import { BaseDiscoveryProvider } from './baseProvider.js';

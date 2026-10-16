@@ -1,134 +1,235 @@
-# UpShift AI Gig Discovery Engine — Architecture & System Design
+# UpShift AI Gig Network — System Architecture & Component Design
 
-> **Document Version:** 1.0  
-> **FRD Reference:** FRD v1.0 Section 19, 26 (Deliverable #42)  
-> **Status:** Verified Active Implementation  
-
----
-
-## 1. Executive Summary
-
-The **UpShift AI Gig Discovery Engine** is a high-reliability, automated opportunity ingestion, classification, verification, and human-in-the-loop publishing pipeline. It continuously scans permitted external data providers, extracts and validates structured gig data, categorizes listings into six distinct UpShift modules (**M1–M6**), isolates unapproved listings in a secure staging repository, and publishes verified opportunities to the learner directory only after human administrator approval and automated network availability checks.
+> **Document Version:** 2.0 (Cleaned & Verified)
+> **Target Audience:** Engineering Team & Technical Interviewers
+> **Status:** Production-Ready Architectural Documentation
 
 ---
 
-## 2. System Architecture Diagram
+## 1. System Overview
+
+**UpShift** is an automated micro-gig aggregation and publishing platform designed to bridge student learners with verified, paid freelance opportunities. The system continuously ingests listings from permitted external sources, normalizes and classifies listings into six career tracks (**M1–M6**), isolates unreviewed listings in a secure staging repository, and publishes opportunities to the live directory only after human administrator approval and pre-publication network reachability verification.
+
+---
+
+## 2. Component Relationship Diagram
 
 ```mermaid
 graph TB
-    subgraph External_Sources["1. Permitted External Sources (FRD Sec 10)"]
-        S1["Arbeitnow API<br/>(M4/M6 Tech Jobs)"]
-        S2["Remotive API<br/>(M1-M5 Remote)"]
-        S3["We Work Remotely<br/>(RSS Feeds)"]
-        S4["Hugging Face / Devpost<br/>(Bounties & Tasks)"]
-        S5["Kaggle / Curated Feeds<br/>(Data & AI Gigs)"]
+    subgraph Client_Tier["Client Tier (React 19 + React Router 7 + Vanilla CSS)"]
+        UI_LEARNER["Learner Portal (/dashboard)<br/>Browse M1-M6, Save, Track Applications"]
+        UI_ADMIN["Admin Review Queue (/admin)<br/>Review, Filter, Edit, Approve, Export"]
+        AUTH_CTX["AuthContext & useAuth()<br/>Session Management & Fail-Closed Hydration"]
     end
 
-    subgraph Ingestion_Pipeline["2. Ingestion & Normalization Worker (FRD Sec 19)"]
-        SR["Source Registry & Health Tracker<br/>(src/server/sources.js)"]
-        FETCH["HTTP / API Ingestion Engine<br/>(Rate limits & Robots.txt)"]
-        DEDUP["Deduplication Engine<br/>(URL, Ext ID & Canonical Hash)"]
+    subgraph Edge_API_Tier["API & Backend Services"]
+        CF_CANDIDATES["Cloudflare / Local API (/api/candidates)<br/>functions/api/candidates.js & candidateApiHandler.js"]
+        CF_DISCOVERY["Discovery Endpoints (/api/discovery/*)<br/>Job Dispatch & Status Polling"]
+        AUTH_GATE["Token & Role Verification Gateway<br/>JWT Signature Check + profiles.role Check"]
     end
 
-    subgraph AI_Verification["3. AI Classification & Verification (FRD Sec 11, 14)"]
-        EXTRACT["Data Extractor<br/>(Compensation, Roles, Dates)"]
-        VERIFY["Activity Verifier<br/>(Active / Paused / Stopped / Needs Review)"]
-        MODULE["Module Matcher M1-M6<br/>(Weighted Keyword & Fit Scoring)"]
-        PRIORITY["Composite Review Priority Scorer<br/>(0 - 100 Scale)"]
+    subgraph Worker_Engine["Ingestion & Worker Tier (Node.js Background Jobs)"]
+        CRAWLER["Resilient Crawler (crawler.js)<br/>SSRF Protection & DNS-Rebinding Defense"]
+        CLASSIFIER["AI & Rule Classifier (moduleClassifier.js)<br/>Keyword Scoring, LLM Extraction, Priority Scoring"]
+        DEDUP["Deduplication Engine (deduplicator.js)<br/>Canonical URL & Hash-Based Clustering"]
+        MONITOR["Health Monitor & Daemon (monitor.js, scheduler.js)<br/>Daily Verification & Dead-Link Degradation"]
     end
 
-    subgraph Staging_Isolation["4. Isolated Staging Layer (FRD Sec 16, 26)"]
-        STAGING[("public.gig_candidates<br/>(Supabase Isolated Staging)")]
-        LOCAL_STORE[("data/candidates.json<br/>(Local Dev Persistence)")]
-        RLS["Row Level Security (RLS)<br/>(Admins: Full Access / Learners: Blocked)"]
+    subgraph Data_Tier["Data & Persistence Tier (Supabase PostgreSQL + RLS)"]
+        AUTH_SERVICE["Supabase Auth (auth.users)"]
+        TABLE_PROFILES[("public.profiles<br/>Role: admin | learner (Trigger Protected)")]
+        TABLE_CANDIDATES[("public.gig_candidates (Staging)<br/>RLS: Restricted Exclusively to Admins")]
+        TABLE_GIGS[("public.gigs (Live Directory)<br/>RLS: Active Visible to Public, Edits Admin-Only")]
+        TABLE_JOBS[("public.discovery_jobs<br/>Worker Concurrency & Lease Tracking")]
+        LOCAL_DATA[("data/candidates.json<br/>Local Dev Standalone Fallback")]
     end
 
-    subgraph Admin_Review["5. Human Review & Approval Gateway (FRD Sec 17, 21)"]
-        UI_QUEUE["Candidate Review Queue UI<br/>(CandidateReviewQueue.jsx)"]
-        INSPECT["Modal Inspector & Editor<br/>(Module, Tracked URLs, Audit Notes)"]
-        REV_CTRL["Pause / Stop Controls<br/>(REV-06 Human Overrides)"]
-        GATE["Mandatory Referral Gate<br/>(REF-03 Gate Verification)"]
-        PRECHECK["Pre-Publish Network Recheck<br/>(PUB-02 Live Availability Probe)"]
-    end
+    %% Client Interactions
+    UI_LEARNER --> AUTH_CTX
+    UI_ADMIN --> AUTH_CTX
+    AUTH_CTX --> AUTH_SERVICE
+    UI_LEARNER -->|Direct Query (RLS Active Only)| TABLE_GIGS
+    UI_ADMIN -->|Bearer JWT Request| CF_CANDIDATES
+    UI_ADMIN -->|Bearer JWT Request| CF_DISCOVERY
 
-    subgraph Published_Directory["6. Production Directory & Output (FRD Sec 18, 22)"]
-        NOTIF["Notification Event Dispatcher<br/>(src/server/notifications.js)"]
-        CSV["19-Column CSV Exporter<br/>(src/discovery/csvExport.js)"]
-        LIVE_GIGS[("public.gigs<br/>(Live Learner Directory)")]
-        LEARNER_UI["Learner Opportunities View<br/>(Opportunities.jsx)"]
-    end
+    %% Edge API Flow
+    CF_CANDIDATES --> AUTH_GATE
+    CF_DISCOVERY --> AUTH_GATE
+    AUTH_GATE --> AUTH_SERVICE
+    AUTH_GATE --> TABLE_PROFILES
+    CF_CANDIDATES -->|Service Role Client| TABLE_CANDIDATES
+    CF_CANDIDATES -->|Pre-Publish Reachability Recheck| TABLE_GIGS
+    CF_CANDIDATES -.->|Fallback if no DB| LOCAL_DATA
 
-    subgraph Monitoring_Daemon["7. Daily Health Monitor (FRD Sec 21)"]
-        MONITOR["Health Monitoring Worker<br/>(src/server/monitor.js)"]
-    end
-
-    %% Flow Connections
-    External_Sources --> FETCH
-    SR --> FETCH
-    FETCH --> DEDUP
-    DEDUP --> EXTRACT
-    EXTRACT --> VERIFY
-    VERIFY --> MODULE
-    MODULE --> PRIORITY
-    PRIORITY --> STAGING
-    PRIORITY --> LOCAL_STORE
-    STAGING --- RLS
-
-    STAGING --> UI_QUEUE
-    UI_QUEUE --> INSPECT
-    INSPECT --> REV_CTRL
-    REV_CTRL --> GATE
-    GATE --> PRECHECK
-    PRECHECK -->|Healthy & Approved| LIVE_GIGS
-    PRECHECK -->|Healthy & Approved| NOTIF
-    PRECHECK -->|HTTP 404 / Closed| STAGING
-    LIVE_GIGS --> LEARNER_UI
-    LIVE_GIGS --> CSV
-
-    MONITOR -->|Recheck Active Listings| LIVE_GIGS
-    MONITOR -->|Mark Stopped on 404| STAGING
-    MONITOR -->|Record Source Health| SR
+    %% Worker Execution Flow
+    CRAWLER --> CLASSIFIER
+    CLASSIFIER --> DEDUP
+    DEDUP --> TABLE_CANDIDATES
+    DEDUP -.-> LOCAL_DATA
+    MONITOR -->|Probe Active URLs| TABLE_GIGS
+    MONITOR -->|Mark Stopped on 404| TABLE_CANDIDATES
+    MONITOR --> TABLE_JOBS
 ```
 
 ---
 
-## 3. Core Component Subsystems
+## 3. Discovered Candidate Lifecycle
 
-### 3.1. External Ingestion & Source Registry (`src/server/sources.js`)
-- **Permitted Sources:** Arbeitnow, Remotive, We Work Remotely, Hugging Face, Devpost, Kaggle, Contra.
-- **Constraints (`SRC-01`, `SRC-02`, `SRC-03`):** Public feeds and APIs only. Zero bypass of authentication, paywalls, or CAPTCHA. Strict per-source rate limiting (10–60 RPM).
-- **Health Tracking (`SRC-05`):** Tracks `consecutive_errors`, `last_checked_at`, `total_discoveries`, and flags sources as `healthy`, `degraded`, or `failing`.
+From initial external ingestion through review and publication, each opportunity transitions through explicit lifecycle states:
 
-### 3.2. Extraction & Verification Engine (`src/server/activityVerifier.js`, `pipeline.js`)
-- **Canonical Activity States:** `Active`, `Paused`, `Stopped`, and `Needs Review`.
-- **Truth In Advertising:** Never fabricates missing compensation or dates (`T07`, `T08`). If compensation is unspecified, records `"Unspecified"` and sets numeric ranges to `0`.
-- **Deduplication:** Normalizes URLs and checks `external_gig_id` and `source_listing_id` before inserting records.
+```mermaid
+stateDiagram-v2
+    [*] --> Ingestion: Crawler Discovers Listing
+    Ingestion --> Deduplication: HTML Normalized & SSRF Checked
+    Deduplication --> Clustered: Duplicate Detected (Linked to Primary)
+    Deduplication --> Staging: Unique Listing
 
-### 3.3. Isolated Staging Layer (`public.gig_candidates`)
-- Staging table separated from live learner table (`public.gigs`).
-- **PostgreSQL RLS:** `Admins have full access to gig_candidates` enforces `is_admin()`. Anonymous clients receive `401 / 42501 (permission denied)`. Authenticated learners receive `[]` (zero rows) and zero write access.
+    state Staging {
+        [*] --> PendingReview: Ingested as pending_review
+        PendingReview --> NeedsRecheck: Activity Uncertain or Expiring
+        NeedsRecheck --> PendingReview: Recheck Probes Verified
+    }
 
-### 3.4. Human Approval Gateway & Safety Constraints (`src/discovery/candidateStore.js`)
-- **Approval Gate (`REV-01`, `T10`):** No candidate can transition to live gigs without explicit `approved` status.
-- **Mandatory Referral Gate (`REF-03`, `T12`):** When `referral_required: true`, publishing is strictly blocked if `referral_id` or `referral_url` is missing.
-- **Pre-Publication Reachability Recheck (`PUB-02`, `VER-08`, `T11`):** Immediately before insertion into `public.gigs`, the engine performs an automated network probe. If the target URL returns 404, 410, or closed signals, the candidate is marked `Stopped` and publishing is aborted.
+    Staging --> Rejected: Admin Decision (Reject)
+    Staging --> Paused: Admin Decision (Pause / Suspend)
+    Staging --> Approved: Admin Decision (Approve)
 
-### 3.5. 19-Column CSV Contract (`src/discovery/csvExport.js`)
-- Generates exact RFC 4180 compliant CSV exports matching the 19 required columns in exact specification order:
-  `external_gig_id`, `title`, `track_id`, `payment_amount`, `compensation_type`, `min_amount`, `max_amount`, `currency`, `priority`, `is_featured`, `is_local_business`, `posted_at`, `origin_url`, `short_description`, `overview`, `responsibilities`, `deliverables`, `requirements`, `proof_spec`.
-- Strictly filters out unapproved, paused, rejected, or stopped records (`T13`).
+    state Approved {
+        [*] --> ReferralGateCheck
+        ReferralGateCheck --> Blocked: Referral Required but Missing
+        ReferralGateCheck --> LiveReachabilityProbe: Referral Verified or Not Required
+        LiveReachabilityProbe --> Stopped: HTTP 404 / 410 / Closure Notice
+        LiveReachabilityProbe --> PublishedToLiveGigs: HTTP 200 OK
+    }
 
-### 3.6. Scheduled Health Monitoring (`src/server/monitor.js`)
-- Daily / continuous daemon that re-verifies active opportunities.
-- Prevents false `Active` states (`PUB-05`): dead listings are downgraded to `Stopped`, and `opportunity.health_status_changed` notifications are dispatched.
+    PublishedToLiveGigs --> ActiveInDirectory: Appears in public.gigs
+    ActiveInDirectory --> Stopped: Daily Health Monitor Finds 404
+```
+
+### Detailed Lifecycle Steps:
+1. **Discovery & SSRF-Protected Fetch:** The crawler requests job pages from permitted sources (e.g., Arbeitnow, Remotive, We Work Remotely). The URL is pre-validated by `validateSafeUrl` to block loopback (`127.0.0.1`), RFC 1918 private subnets, cloud metadata endpoints (`169.254.169.254`), and DNS-rebinding attacks.
+2. **Sanitization & Normalization:** Untrusted HTML is parsed and stripped of executable schemes (`javascript:`, `data:`). Non-existent compensation is recorded as `"Unspecified"` (no fabricated data).
+3. **Deduplication:** The listing is checked against canonical URL hashes and external source IDs. If matched, it is assigned a `duplicate_cluster_id` and flagged as `is_duplicate: true`.
+4. **Staging Isolation:** Unique listings are inserted into `public.gig_candidates` with status `pending_review`. PostgreSQL RLS policies ensure standard learners cannot read or query staged items.
+5. **Human Admin Review:** The administrator examines the listing in `CandidateReviewQueue.jsx`.
+6. **Mandatory Referral Gate (`REF-03`):** If `referral_required` is true, the candidate cannot be approved or published without a valid `referral_id` or `referral_url`. Any modifications are logged in `referral_history`.
+7. **Pre-Publication Network Reachability Recheck (`PUB-02`):** Immediately before publication to `public.gigs`, the system performs an asynchronous HTTP probe against the origin URL. If the endpoint returns 404, 410, or a closure notice, publication is aborted and status transitions to `Stopped`.
+8. **Live Publication:** Upon successful verification, the record is inserted into `public.gigs`, becoming visible to learners in the directory.
+9. **Continuous Health Monitoring:** The daily scheduler runs `src/server/monitor.js` to re-probe active listings, automatically marking stale or closed opportunities as `Stopped`.
 
 ---
 
-## 4. Security & Boundary Architecture
+## 4. Request-Flow Walkthrough: Candidate Update & Publication
 
-| Boundary | Mechanism | Verification Method |
-| :--- | :--- | :--- |
-| **Database Permissions** | `REVOKE` excessive grants from `anon` & `authenticated` | `information_schema.role_table_grants` |
-| **Learner Isolation** | Row Level Security (RLS) with `is_admin()` policy | REST API probe returned `HTTP 200 []` |
-| **Server Secrets** | Strict server-side isolation; no `VITE_` prefix on service keys | Automated scan (`scripts/verify_bundle_secrets.mjs`) |
-| **Production Shield** | Standalone dev database; zero prod migrations executed | Isolated config verification |
+The following trace illustrates how an admin updates candidate status or triggers publication through `/api/candidates`:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as Admin User
+    participant Browser as React Queue (CandidateReviewQueue.jsx)
+    participant Endpoint as API Endpoint (/api/candidates)
+    participant AuthGate as Token & Role Gate
+    participant SupabaseAuth as Supabase Auth (/auth/v1/user)
+    participant ProfilesDB as public.profiles
+    participant CandidateStore as candidateStore.js
+    participant NetworkProbe as Live Reachability Prober
+    participant StagingDB as public.gig_candidates
+    participant LiveDB as public.gigs
+
+    Admin->>Browser: Clicks "Approve & Publish"
+    Browser->>Endpoint: POST /api/candidates<br/>Authorization: Bearer <jwt><br/>Body: { candidate: { id, status: 'approved', referral_url, ... } }
+
+    Endpoint->>AuthGate: verifyTokenAndRole(token)
+    AuthGate->>SupabaseAuth: Validate JWT Signature & Expiration
+    SupabaseAuth-->>AuthGate: Verified User (id: "usr_admin_123")
+    AuthGate->>ProfilesDB: SELECT role FROM profiles WHERE id = "usr_admin_123"
+    ProfilesDB-->>AuthGate: { role: 'admin' }
+    AuthGate-->>Endpoint: Authorization OK (User is Admin)
+
+    Endpoint->>CandidateStore: updateCandidate(candidateId, updates)
+
+    alt Status is transitioning to 'approved'
+        CandidateStore->>CandidateStore: Check Referral Gate (referral_required check)
+        CandidateStore->>NetworkProbe: probeUrlAvailability(origin_url)
+        alt Link is Reachable (HTTP 200)
+            NetworkProbe-->>CandidateStore: Reachable (OK)
+            CandidateStore->>StagingDB: UPDATE gig_candidates SET status = 'approved'
+            CandidateStore->>LiveDB: INSERT INTO gigs (id, title, track_id, payment_amount, ...)
+            Endpoint-->>Browser: HTTP 200 { success: true, candidate, published: true }
+            Browser-->>Admin: Updates UI card to "Approved ✓"
+        else Link is Dead (HTTP 404 / 410 / Timeout)
+            NetworkProbe-->>CandidateStore: Unreachable (404 Not Found)
+            CandidateStore->>StagingDB: UPDATE gig_candidates SET activity_status = 'Stopped'
+            Endpoint-->>Browser: HTTP 422 { error: 'Pre-publication probe failed: URL unreachable.' }
+            Browser-->>Admin: Displays warning toast: "Publication blocked: URL dead"
+        end
+    else Status is Pause / Reject / Update
+        CandidateStore->>StagingDB: UPDATE gig_candidates SET ...
+        Endpoint-->>Browser: HTTP 200 { success: true, candidate }
+    end
+```
+
+---
+
+## 5. Security & Authorization Boundaries
+
+The UpShift security model enforces four defensive perimeters:
+
+```
++-----------------------------------------------------------------------+
+|  1. BROWSER TIER (Client-Side)                                        |
+|  - Role hydration fails closed to 'learner'.                         |
+|  - UI route guards (ProtectedRoute) block unauthorized view access.   |
+|  - CSV exports neutralize spreadsheet formula injection.              |
++-----------------------------------------------------------------------+
+                                  |
+                                  v  Bearer JWT in HTTP Headers
++-----------------------------------------------------------------------+
+|  2. EDGE / SERVERLESS API GATEWAY (Cloudflare / Vite Middleware)     |
+|  - Server authoritatively validates JWT signature with Supabase Auth. |
+|  - Retrieves role strictly from public.profiles; ignores client claims|
+|  - Missing/expired tokens -> HTTP 401; non-admin users -> HTTP 403.    |
+|  - Strict application/json content-type on all responses.             |
++-----------------------------------------------------------------------+
+                                  |
+                                  v  Privileged Service Client
++-----------------------------------------------------------------------+
+|  3. BACKGROUND INGESTION ENGINE (Worker & Crawler)                   |
+|  - SSRF protection: blocks private IPs, loopback, and metadata APIs.  |
+|  - Zero bypass of authentication or paywalls.                         |
+|  - Service role keys never shared with browser client bundles.        |
++-----------------------------------------------------------------------+
+                                  |
+                                  v  PostgreSQL Database Engine
++-----------------------------------------------------------------------+
+|  4. DATABASE ROW-LEVEL SECURITY (PostgreSQL RLS)                      |
+|  - public.gig_candidates: SELECT/INSERT/UPDATE restricted to is_admin |
+|  - public.gigs: Learners can only SELECT where status = 'Active'.     |
+|  - public.profiles: trg_protect_profile_role prevents self-elevation. |
++-----------------------------------------------------------------------+
+```
+
+| Security Layer | Enforcing Component | Threat Mitigated | Verification Method |
+| :--- | :--- | :--- | :--- |
+| **Frontend Hydration** | `src/App.jsx` (`loadProfile`) | LocalStorage role spoofing | Unit tests in `tests/security_remediation.test.js` |
+| **CSV Export Sanitizer** | `src/discovery/csvExport.js` | Spreadsheet formula injection (`=`, `+`, `-`, `@`, `|`, `%`) | Suite: `Security Remediation: P1 — CSV Formula Injection` |
+| **API Token & Role Gate** | `src/server/candidateApiHandler.js` & `functions/api/candidates.js` | Dev/Prod authorization parity & privilege escalation | Suite: `API Authorization & Adversarial Security Tests` |
+| **SSRF & DNS Rebinding** | `src/server/crawler.js` (`validateSafeUrl`) | Private intranet probing & AWS/GCP metadata exfiltration | Suite: `Security Remediation: P2 — SSRF & DNS-Rebinding` |
+| **Database RLS Policies** | `supabase/migrations/20261012000000_*.sql` | Direct PostgREST data scraping by learners | Verified with anon/learner tokens returning 0 rows |
+| **Profile Role Protection** | PostgreSQL trigger `trg_protect_profile_role` | Direct SQL / API role tampering | Verified by migration trigger assertion |
+| **Client Bundle Gate** | `scripts/verify_bundle_secrets.mjs` | Leaking service keys into compiled JS bundles | Verified by `npm run verify:secrets` in CI |
+
+---
+
+## 6. Architecture Trade-Offs
+
+1. **Dual Storage Model (Database vs Local JSON):**
+   - *Design Decision:* The system supports both Supabase PostgreSQL (`CANDIDATE_STORAGE=supabase`) and local file persistence (`CANDIDATE_STORAGE=json`).
+   - *Trade-Off:* Simplifies local development without external cloud dependencies, but requires defensive dual-repository code paths in `candidateStore.js`.
+2. **Heuristic Keyword Matching vs Pure LLM Pipeline:**
+   - *Design Decision:* The classifier employs a deterministic weighted-keyword baseline with optional LLM second-pass refinement.
+   - *Trade-Off:* Dramatically reduces cloud inference costs and guarantees ₹0 operating budget, while retaining high extraction accuracy on standard listings.
+3. **Optimistic UI Updates with Server Rollback:**
+   - *Design Decision:* In the review queue, card state updates optimistically in React state, synchronizing with the server in the background.
+   - *Trade-Off:* Provides a snappy reviewer experience, but requires explicit error handling and state rollbacks if server validation or network probes reject the change.

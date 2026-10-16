@@ -172,7 +172,7 @@ export function extractGigFields(htmlOrText, sourceUrl = '') {
   const reqMatch = sanitizedText.match(/(?:requirements|qualifications|what you need|skills required|about you):?([\s\S]{20,600}?)(?=(?:responsibilities|benefits|compensation|how to apply|$))/i);
   if (reqMatch && reqMatch[1]) requirements = reqMatch[1].trim();
 
-  // Extract Application URL
+  // Extract Application URL (defaults to safe sourceUrl if no valid anchor apply link found)
   let application_url = isSafeHttpUrl(sourceUrl) ? sourceUrl : '';
   if (isHtml) {
     const applyLinkMatch = htmlOrText.match(/<a[^>]*href=["']([^"']+)["'][^>]*>(?:apply|apply now|submit application|apply for this job)<\/a>/i);

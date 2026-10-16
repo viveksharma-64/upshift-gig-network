@@ -2591,8 +2591,13 @@ body {
 .saas-admin-shell {
   display: flex;
   min-height: 100vh;
+  min-height: 100dvh;
   background-color: var(--saas-bg);
   color: var(--saas-text-body);
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  position: relative;
 }
 
 /* DESKTOP SIDEBAR */
@@ -2629,6 +2634,12 @@ body {
   text-decoration: none;
 }
 
+.saas-sidebar-brand-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .saas-brand-tag {
   font-size: 10.5px;
   font-weight: 700;
@@ -2638,6 +2649,29 @@ body {
   border-radius: 6px;
   background: #f1f5f9;
   color: #475569;
+}
+
+.saas-sidebar-close-btn {
+  display: none;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+  padding: 0;
+}
+
+.saas-sidebar-close-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
 }
 
 .saas-sidebar-nav {
@@ -2762,6 +2796,9 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 /* TOPBAR */
@@ -2776,6 +2813,137 @@ body {
   position: sticky;
   top: 0;
   z-index: 40;
+}
+
+.admin-top-nav .saas-topbar-main-row {
+  display: contents;
+}
+
+.admin-top-nav .saas-topbar-left {
+  order: 1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.admin-top-nav .admin-header-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.admin-top-nav .admin-header-title-full {
+  display: inline;
+}
+
+.admin-top-nav .admin-header-title-compact {
+  display: none;
+}
+
+.admin-top-nav .admin-header-badge {
+  font-weight: 800;
+}
+
+.admin-top-nav .dashboard-unified-nav {
+  order: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 16px;
+  margin-right: auto;
+}
+
+.admin-top-nav .saas-topbar-right {
+  order: 3;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.btn-admin-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  color: #475569;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-admin-nav:hover {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+.btn-admin-nav-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.btn-admin-nav-text {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-unified-tab {
+  background: #f8fafc;
+  color: #475569;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.admin-unified-tab:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.admin-unified-tab.active-overview {
+  background: #111827;
+  color: #ffffff;
+  border-color: #111827;
+}
+
+.admin-unified-tab.active-directory {
+  background: #111827;
+  color: #ffffff;
+  border-color: #111827;
+}
+
+.admin-unified-tab.active-discovery {
+  background: #e31b23;
+  color: #ffffff;
+  border-color: #e31b23;
+}
+
+.admin-tab-pending-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  margin-left: 2px;
 }
 
 .saas-topbar-left {
@@ -2815,6 +2983,157 @@ body {
   max-width: 1400px;
   width: 100%;
   margin: 0 auto;
+  box-sizing: border-box;
+}
+
+/* CANDIDATE REVIEW QUEUE & DISCOVERY STYLING */
+.operational-status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.discovery-filter-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.discovery-search-input {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: 9px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #0f172a;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.discovery-search-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.discovery-filter-select {
+  padding: 9px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  background: #ffffff;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.discovery-filter-select:focus {
+  outline: none;
+  border-color: #2563eb;
+}
+
+.candidate-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+}
+
+.candidate-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid #f3f4f6;
+  padding-top: 12px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-inspect-edit {
+  background: none;
+  border: 1px solid #d1d5db;
+  color: #374151;
+  padding: 7px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.btn-inspect-edit:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.candidate-card-state-btns {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.candidate-inspect-card {
+  max-width: 680px !important;
+  width: 100% !important;
+  position: relative;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.candidate-inspect-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  font-size: 18px;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.candidate-modal-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.candidate-referral-grid {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 10px;
+}
+
+.candidate-score-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.candidate-modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 16px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.candidate-modal-actions-left,
+.candidate-modal-actions-right {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 /* OVERVIEW DASHBOARD */
@@ -2977,18 +3296,26 @@ body {
   inset: 0;
   background: rgba(15, 23, 42, 0.45);
   backdrop-filter: blur(2px);
-  z-index: 45;
+  z-index: 998;
 }
 
-/* 2. RESPONSIVE BREAKPOINTS (375px, 390px, 768px, 1024px, 1366px, 1440px) */
+/* 2. RESPONSIVE BREAKPOINTS (320px, 375px, 430px, 768px, 1024px, 1440px) */
 @media (max-width: 1024px) {
   .saas-sidebar {
     position: fixed;
     top: 0;
     left: 0;
     bottom: 0;
+    height: 100vh;
+    height: 100dvh;
+    width: min(290px, 85vw);
+    max-width: 85vw;
     transform: translateX(-100%);
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25);
+    z-index: 999;
+    padding-top: max(12px, env(safe-area-inset-top));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    padding-left: max(12px, env(safe-area-inset-left));
   }
 
   .saas-sidebar.open {
@@ -2999,23 +3326,144 @@ body {
     display: block;
   }
 
-  .saas-mobile-toggle-btn {
+  .saas-sidebar-close-btn {
+    display: inline-flex;
+  }
+
+  /* Responsive Topbar on Tablets and Phones */
+  .saas-topbar.admin-top-nav {
+    height: auto;
+    min-height: 56px;
+    padding: 10px 16px 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .admin-top-nav .saas-topbar-main-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 12px;
+  }
+
+  .admin-top-nav .saas-topbar-left {
+    order: unset;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .admin-top-nav .saas-mobile-toggle-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #1e293b;
+    font-size: 18px;
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 0;
+  }
+
+  .admin-top-nav .saas-mobile-toggle-btn:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+  }
+
+  .admin-top-nav .admin-header-title {
+    font-size: 16px;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .admin-top-nav .saas-topbar-right {
+    order: unset;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  .admin-top-nav .btn-admin-nav {
+    padding: 6px 10px;
+    font-size: 12.5px;
+    border-radius: 7px;
+  }
+
+  .admin-top-nav .dashboard-unified-nav {
+    order: unset;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+    padding: 2px 0 6px;
+    box-sizing: border-box;
+  }
+
+  .admin-top-nav .dashboard-unified-nav::-webkit-scrollbar {
+    height: 4px;
+    display: block;
+  }
+
+  .admin-top-nav .dashboard-unified-nav::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 9999px;
+  }
+
+  .admin-top-nav .dashboard-unified-nav::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+  }
+
+  .admin-top-nav .dashboard-unified-nav::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+
+  .admin-top-nav .dashboard-unified-nav::after {
+    content: '';
+    display: block;
+    flex: 0 0 16px;
+    width: 16px;
+    height: 1px;
+  }
+
+  .admin-unified-tab {
+    padding: 6px 11px;
+    font-size: 12px;
+    flex-shrink: 0;
+    scroll-snap-align: start;
+  }
+
+  .candidate-cards-grid {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 14px;
   }
 
   .saas-content-area {
-    padding: 20px 16px 64px;
+    padding: 18px 16px 64px;
   }
 }
 
 @media (max-width: 768px) {
-  .saas-topbar {
-    padding: 0 16px;
-    height: 56px;
-  }
-
   .overview-stats-grid {
     grid-template-columns: 1fr 1fr;
     gap: 12px;
@@ -3034,6 +3482,30 @@ body {
   .directory-header-actions {
     width: 100%;
     flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .operational-status-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px;
+  }
+
+  .discovery-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .discovery-search-input,
+  .discovery-filter-select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .candidate-cards-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 
   .learner-nav {
@@ -3055,42 +3527,153 @@ body {
 }
 
 @media (max-width: 640px) {
-  .saas-topbar {
-    padding: 0 12px;
-    height: 54px;
-  }
-
-  .saas-topbar-left h1 {
-    font-size: 14.5px !important;
-  }
-
-  .dashboard-unified-nav button {
-    padding: 5px 8px !important;
-    font-size: 11.5px !important;
-  }
-
-  .saas-topbar-right .live-badge-pill {
-    display: none;
+  .admin-top-nav {
+    padding: 8px 12px 6px;
   }
 
   .modal-overlay {
-    padding: 10px;
+    padding: max(10px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
   }
 
   .modal-card {
     padding: 20px 16px;
     border-radius: 14px;
+    max-height: 92vh;
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .candidate-modal-grid-2 {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .candidate-referral-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .candidate-score-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .candidate-modal-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .candidate-modal-actions-left,
+  .candidate-modal-actions-right {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .candidate-modal-actions-left button,
+  .candidate-modal-actions-right button {
+    width: 100%;
+    text-align: center;
+    justify-content: center;
+    padding: 10px 8px;
+    box-sizing: border-box;
   }
 }
 
 @media (max-width: 480px) {
+  .admin-top-nav {
+    padding: 8px 10px 6px;
+    gap: 6px;
+  }
+
+  .admin-top-nav .admin-header-title {
+    font-size: 14.5px;
+  }
+
+  .admin-top-nav .admin-header-title-full {
+    display: none;
+  }
+
+  .admin-top-nav .admin-header-title-compact {
+    display: inline;
+  }
+
+  .admin-top-nav .btn-admin-nav {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+
+  .admin-unified-tab {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .overview-hero-card {
+    padding: 16px;
+    border-radius: 12px;
+  }
+
   .overview-stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  .saas-kpi-card {
+    padding: 16px;
+  }
+
+  .saas-kpi-value {
+    font-size: 26px;
   }
 
   .directory-card {
     padding: 14px 12px;
     border-radius: 12px;
+  }
+
+  .directory-header-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .directory-header-actions .btn-bulk-import,
+  .directory-header-actions .btn-add-gig {
+    width: 100%;
+    justify-content: center;
+    box-sizing: border-box;
+    text-align: center;
+  }
+
+  .candidate-card-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .btn-inspect-edit {
+    width: 100%;
+    text-align: center;
+    justify-content: center;
+    padding: 8px 12px;
+    box-sizing: border-box;
+  }
+
+  .candidate-card-state-btns {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    width: 100%;
+  }
+
+  .candidate-card-state-btns button {
+    width: 100%;
+    text-align: center;
+    justify-content: center;
+    padding: 8px 6px;
+    font-size: 11.5px;
+    box-sizing: border-box;
   }
 
   .learner-nav {
@@ -3116,6 +3699,33 @@ body {
     padding: 8px 6px;
     font-size: 12.5px;
     min-width: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .admin-top-nav .admin-header-title {
+    font-size: 13.5px;
+  }
+
+  .admin-top-nav .btn-admin-nav-text {
+    display: none;
+  }
+
+  .admin-top-nav .btn-admin-nav {
+    padding: 6px 9px;
+  }
+
+  .candidate-card-state-btns {
+    grid-template-columns: 1fr;
+  }
+
+  .candidate-score-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .candidate-modal-actions-left,
+  .candidate-modal-actions-right {
+    grid-template-columns: 1fr;
   }
 }
 

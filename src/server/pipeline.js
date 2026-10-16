@@ -13,24 +13,32 @@ import { classifyListingModules } from './moduleClassifier.js';
 import { calculateDataCompleteness, calculateSourceReliability, calculateReviewPriority } from './scoring.js';
 import { defaultLlmService } from './llm/llmService.js';
 import { defaultCandidateRepository, getServerSupabaseClient } from './candidateRepository.js';
+import { evaluateGigRelevance } from './gigClassifier.js';
+import { analyzeUrlStructure, LINK_TYPE, LINK_STATUS } from '../discovery/urlClassifier.js';
 
 import { FixtureDiscoveryProvider } from './providers/fixtureProvider.js';
 import { RssDiscoveryProvider } from './providers/rssProvider.js';
 import { PublicApiDiscoveryProvider } from './providers/publicApiProvider.js';
 import { WebPageDiscoveryProvider } from './providers/webPageProvider.js';
+import { FreelancerDiscoveryProvider } from './providers/freelancerProvider.js';
 
 export class DiscoveryPipeline {
   constructor(options = {}) {
     this.repository = options.repository || defaultCandidateRepository;
     this.llmService = options.llmService !== undefined ? options.llmService : defaultLlmService;
 
-    // Configure enabled providers
-    this.providers = options.providers || [
-      new FixtureDiscoveryProvider(),
+    // Configure enabled providers (production defaults: verified free public APIs and RSS feeds)
+    const defaultProviders = [
       new PublicApiDiscoveryProvider(),
       new RssDiscoveryProvider(),
       new WebPageDiscoveryProvider()
     ];
+    // Documented marketplace integration stub (only active if explicit OAuth token is configured)
+    if (typeof process !== 'undefined' && process.env?.FREELANCER_OAUTH_TOKEN) {
+      defaultProviders.push(new FreelancerDiscoveryProvider());
+    }
+
+    this.providers = options.providers || defaultProviders;
   }
 
   /**
@@ -45,15 +53,55 @@ export class DiscoveryPipeline {
       ? extractGigFields(rawListing.description, rawListing.original_url)
       : {};
 
+    const rawUrl = rawListing.original_url || rawListing.url || rawListing.link || rawListing.canonical_url || '';
+    const canonicalUrl = normalizeCanonicalUrl(rawListing.canonical_url || rawUrl);
+    const opportunityUrl = rawListing.opportunity_url || canonicalUrl || rawUrl;
+    const sourceUrl = rawListing.source_url || rawListing.source_feed || rawListing.source_endpoint || rawUrl;
+
+    // Direct application URL: only set if explicitly provided or cleanly extracted; never guess by appending /apply
+    const applicationUrl = (rawListing.application_url && rawListing.application_url !== rawUrl && rawListing.application_url !== opportunityUrl)
+      ? rawListing.application_url
+      : (extracted.application_url && extracted.application_url !== rawUrl && extracted.application_url !== opportunityUrl ? extracted.application_url : '');
+
+    // Analyze URL structure (detect homepages, search results, or task platforms)
+    const oppStructure = analyzeUrlStructure(opportunityUrl);
+    let initialLinkType = LINK_TYPE.OPPORTUNITY_PAGE;
+    let initialLinkStatus = LINK_STATUS.VERIFIED;
+    const linkEvidence = [];
+
+    if (oppStructure.isHomepage) {
+      initialLinkType = LINK_TYPE.UNVERIFIED;
+      initialLinkStatus = LINK_STATUS.FAILED;
+      linkEvidence.push(`URL points to root/homepage (${opportunityUrl}) rather than a specific listing.`);
+    } else if (oppStructure.isSearchPage) {
+      initialLinkType = LINK_TYPE.UNVERIFIED;
+      initialLinkStatus = LINK_STATUS.FAILED;
+      linkEvidence.push(`URL points to general job search or category directory (${opportunityUrl}) rather than a specific listing.`);
+    } else if (oppStructure.isKnownTaskPlatform) {
+      initialLinkType = LINK_TYPE.PLATFORM_LOGIN_REQUIRED;
+      linkEvidence.push(`Host is a verified task/gig platform (${oppStructure.platformName}); authentication required before task acceptance.`);
+    } else if (applicationUrl && applicationUrl !== opportunityUrl) {
+      initialLinkType = LINK_TYPE.DIRECT_APPLY;
+      linkEvidence.push(`Distinct application endpoint available: ${applicationUrl}`);
+    } else {
+      linkEvidence.push('Specific opportunity details page identified.');
+    }
+
     const merged = normalizeCandidateTextFields({
       ...extracted,
       ...rawListing,
       title: rawListing.title || extracted.title || 'Untitled Opportunity',
       organization: rawListing.organization || extracted.organization || 'Undisclosed Organization',
       description: rawListing.description || extracted.description || '',
-      canonical_url: normalizeCanonicalUrl(rawListing.canonical_url || rawListing.original_url || rawListing.url || rawListing.link),
-      application_url: rawListing.application_url || extracted.application_url || rawListing.original_url || rawListing.url || rawListing.link,
-      original_url: rawListing.original_url || rawListing.url || rawListing.link || ''
+      canonical_url: canonicalUrl,
+      opportunity_url: opportunityUrl,
+      source_url: sourceUrl,
+      application_url: applicationUrl,
+      original_url: rawUrl,
+      resolved_url: opportunityUrl,
+      link_type: rawListing.link_type || initialLinkType,
+      link_status: rawListing.link_status || initialLinkStatus,
+      link_evidence: linkEvidence
     });
 
     // 2. Check for Duplicates
@@ -169,6 +217,12 @@ export class DiscoveryPipeline {
     let candidateId = merged.id;
     let lifecycleStatus = CANDIDATE_STATUS.PENDING_REVIEW;
 
+    // 7. Evaluate Gig Relevance (Phase 2A)
+    const gigAssessment = evaluateGigRelevance(merged);
+    const isGig = gigAssessment.is_gig;
+    const isConventionalJob = gigAssessment.is_conventional_job;
+    const gigType = gigAssessment.gig_type;
+
     if (isSameSourceRecheck) {
       candidateId = existingMatch.id;
       // If candidate was previously approved but now appears inactive, flag for recheck
@@ -183,6 +237,13 @@ export class DiscoveryPipeline {
     } else if (duplicateCheck.isDuplicate) {
       // Cross-source duplicate or duplicate candidate: flag for safe review / duplicate status
       lifecycleStatus = CANDIDATE_STATUS.DUPLICATE;
+    } else if (isConventionalJob || gigType === 'conventional_job' || gigType === 'article_or_promo') {
+      // Conventional corporate job vacancy or non-gig promotional content: rejected per UpShift criteria
+      lifecycleStatus = CANDIDATE_STATUS.REJECTED;
+      finalClassification = {
+        ...finalClassification,
+        classification_reason: gigAssessment.reason
+      };
     } else if (!finalClassification.is_relevant) {
       lifecycleStatus = CANDIDATE_STATUS.REJECTED;
     }
@@ -196,6 +257,23 @@ export class DiscoveryPipeline {
       matched_modules: finalClassification.matched_modules,
       module_fit_scores: finalClassification.module_fit_scores,
       module_evidence: finalClassification.module_evidence,
+
+      // Gig Qualification Fields (Phase 2A & 2B)
+      is_gig: existingMatch?.is_gig !== undefined ? existingMatch.is_gig : isGig,
+      gig_type: existingMatch?.gig_type || gigType,
+      is_conventional_job: existingMatch?.is_conventional_job !== undefined ? existingMatch.is_conventional_job : isConventionalJob,
+
+      // Granular URLs (Phase 2B & 2C)
+      opportunity_url: merged.opportunity_url,
+      source_url: merged.source_url,
+      application_url: merged.application_url,
+      resolved_url: merged.resolved_url,
+      link_type: merged.link_type,
+      link_status: merged.link_status,
+      link_evidence: [
+        ...(merged.link_evidence || []),
+        ...(gigAssessment.evidence || [])
+      ],
 
       activity_status: finalActivity.activity_status,
       activity_confidence: finalActivity.activity_confidence,
@@ -289,32 +367,50 @@ export class DiscoveryPipeline {
     let rejectedCount = 0;
     let uncertainCount = 0;
 
+    const providerStats = {};
     console.log(`[DiscoveryPipeline] Starting ingestion cycle with ${this.providers.length} provider(s)...`);
 
     for (const provider of this.providers) {
+      providerStats[provider.name] = {
+        fetched: 0,
+        accepted: 0,
+        rejected: 0,
+        uncertain: 0,
+        duplicate: 0,
+        saved: 0
+      };
+
       try {
         console.log(`[DiscoveryPipeline] Querying provider: ${provider.name} (${provider.type})...`);
         const rawListings = await provider.fetchCandidates(options);
+        providerStats[provider.name].fetched = rawListings.length;
         console.log(`[DiscoveryPipeline] Found ${rawListings.length} raw listings from ${provider.name}.`);
 
         for (const raw of rawListings) {
           const candidate = await this.processListing(raw, [...knownPool, ...processedCandidates]);
+          candidate._providerName = provider.name;
           if (candidate.is_duplicate) {
             duplicatesCount++;
+            providerStats[provider.name].duplicate++;
           } else if (candidate.is_relevant) {
             relevantCount++;
+            providerStats[provider.name].accepted++;
           } else {
             rejectedCount++;
+            providerStats[provider.name].rejected++;
           }
 
-          if (candidate.activity_status === ACTIVITY_STATUS.NEEDS_REVIEW || candidate.has_conflict) {
+          if (candidate.activity_status === ACTIVITY_STATUS.NEEDS_REVIEW || candidate.has_conflict || candidate.status === CANDIDATE_STATUS.PENDING_REVIEW) {
             uncertainCount++;
+            providerStats[provider.name].uncertain++;
           }
 
           processedCandidates.push(candidate);
         }
       } catch (err) {
         console.error(`[DiscoveryPipeline] Error in provider ${provider.name}:`, err.message);
+        if (!this.lastErrors) this.lastErrors = [];
+        this.lastErrors.push({ provider: provider.name, error: err.message });
       }
     }
 
@@ -325,6 +421,16 @@ export class DiscoveryPipeline {
       uniqueCandidatesMap.set(cand.id, cand);
     }
     const candidatesToSave = Array.from(uniqueCandidatesMap.values());
+
+    for (const cand of candidatesToSave) {
+      if (cand._providerName && providerStats[cand._providerName]) {
+        providerStats[cand._providerName].saved++;
+      }
+    }
+    // Clean up temporary internal field
+    for (const cand of processedCandidates) {
+      delete cand._providerName;
+    }
 
     // Save batch to repository
     const saveStats = await this.repository.saveBatch(candidatesToSave);
@@ -340,9 +446,36 @@ export class DiscoveryPipeline {
       inserted: saveStats.inserted,
       updated: saveStats.updated,
       total: saveStats.total,
-      candidates: processedCandidates
+      candidates: processedCandidates,
+      providerStats,
+      errors: this.lastErrors || []
     };
   }
 }
 
 export const defaultPipeline = new DiscoveryPipeline();
+
+/**
+ * Convenience runner for programmatic execution of discovery cycles
+ * @param {Array<object>} providers
+ * @param {object} options
+ * @returns {Promise<object>}
+ */
+export async function runDiscoveryPipeline(providers, options = {}) {
+  const repository = options.candidateStore || options.repository || defaultCandidateRepository;
+  const pipeline = new DiscoveryPipeline({
+    repository,
+    providers,
+    ...options
+  });
+  pipeline.lastErrors = [];
+  const cycle = await pipeline.runCycle(options);
+  return {
+    processedCount: cycle.discovered,
+    duplicatesCount: cycle.duplicates,
+    insertedCount: cycle.inserted,
+    updatedCount: cycle.updated,
+    errors: cycle.errors || pipeline.lastErrors || [],
+    ...cycle
+  };
+}

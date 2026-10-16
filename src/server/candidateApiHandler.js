@@ -199,13 +199,14 @@ export async function verifyAdminAuthorization(req, options = {}) {
 
   // 5. Role validation: Must be verified 'admin' in database -> 403 for non-admins
   // NOTE: x-user-role is completely ignored here
-  if (verification.role !== 'admin') {
+  const effectiveRole = verification.role || verification.user?.role || verification.user?.app_metadata?.role;
+  if (effectiveRole !== 'admin') {
     return {
       authorized: false,
       statusCode: 403,
       error: 'Forbidden: Insufficient privileges. Only verified administrators can access the candidate review queue.',
       user: verification.user,
-      role: verification.role
+      role: effectiveRole
     };
   }
 

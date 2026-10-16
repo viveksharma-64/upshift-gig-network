@@ -215,7 +215,7 @@ export default function Signup() {
 
     try {
       const fullName = `${formData.firstName} ${formData.lastName}`.trim();
-      const { data, error: signupError } = await signUp(formData.email, formData.password, {
+      const { error: signupError } = await signUp(formData.email, formData.password, {
         full_name: fullName,
         role: 'learner',
         phone: formData.phone,

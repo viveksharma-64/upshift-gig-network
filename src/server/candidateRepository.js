@@ -136,7 +136,7 @@ export function formatCandidateForDb(candidate) {
     source_listing_id: candidate.source_listing_id || null,
     original_url: candidate.original_url || '',
     canonical_url: candidate.canonical_url || candidate.original_url || '',
-    application_url: candidate.application_url || candidate.original_url || '',
+    application_url: candidate.application_url || '',
     title: (candidate.title || '').trim(),
     organization: (candidate.organization || 'Undisclosed Organization').trim(),
     description: candidate.description || '',

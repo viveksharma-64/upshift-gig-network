@@ -11,16 +11,6 @@ import { isSafeHttpUrl, sanitizeHref } from '../discovery/urlValidator';
 
 export { exportGigsTo19ColCSV, downloadCSV };
 
-// Module display map
-const MODULE_NAMES = {
-  M1: 'M1 — AI Video / Reels',
-  M2: 'M2 — AI Design / Visual',
-  M3: 'M3 — AI Data Annotation / Evaluation',
-  M4: 'M4 — AI Coding / Development',
-  M5: 'M5 — AI Marketing / Growth',
-  M6: 'M6 — AI Automation / Agents',
-};
-
 // Sample seed opportunities
 export const DEFAULT_SEED_GIGS = [
   {
@@ -28,13 +18,19 @@ export const DEFAULT_SEED_GIGS = [
     external_gig_id: 'GIG-001',
     title: 'PDF Annotation & Transcription Experts - Telugu',
     track_id: 'M3',
+    organization: 'Language Quality Labs',
+    company: 'Language Quality Labs',
     payment_amount: '$10 - $15 / hour',
     compensation_type: 'hourly',
     min_amount: 10,
     max_amount: 15,
     priority: 'Featured',
     is_featured: true,
-    origin_url: 'https://upwork.com',
+    origin_url: 'https://www.upwork.com/freelance-jobs/apply/pdf-annotation-transcription-telugu_~01a2b3c4d5e6f7',
+    opportunity_url: 'https://www.upwork.com/freelance-jobs/apply/pdf-annotation-transcription-telugu_~01a2b3c4d5e6f7',
+    application_url: '',
+    link_type: 'opportunity_page',
+    link_status: 'verified',
     short_description: 'PDF Annotation & Transcription Experts - Telugu: a beginner-friendly project focused on data and language quality.',
     overview: 'Full document review and transcription for regional NLP models. Ideal for Telugu-speaking data contributors.',
     posted_at: '2026-09-30'
@@ -44,13 +40,19 @@ export const DEFAULT_SEED_GIGS = [
     external_gig_id: 'GIG-002',
     title: 'Bilingual Audio Contributor (Indian/English)',
     track_id: 'M3',
+    organization: 'Mindrift AI',
+    company: 'Mindrift AI',
     payment_amount: '$20 - $30 / hour',
     compensation_type: 'hourly',
     min_amount: 20,
     max_amount: 30,
     priority: 'Featured',
     is_featured: true,
-    origin_url: 'https://mindrift.ai',
+    origin_url: 'https://mindrift.ai/opportunities/bilingual-audio-contributor-in-en',
+    opportunity_url: 'https://mindrift.ai/opportunities/bilingual-audio-contributor-in-en',
+    application_url: '',
+    link_type: 'platform_login_required',
+    link_status: 'verified',
     short_description: 'Bilingual Audio Contributor (Indian/English): recording and evaluating conversational audio datasets.',
     overview: 'Voice sample validation and acoustic annotation for multi-lingual conversational AI agents.',
     posted_at: '2026-09-30'
@@ -60,13 +62,19 @@ export const DEFAULT_SEED_GIGS = [
     external_gig_id: 'GIG-003',
     title: 'General Data Annotation Expert',
     track_id: 'M3',
+    organization: 'Mercor',
+    company: 'Mercor',
     payment_amount: '$10 - $15 / hour',
     compensation_type: 'hourly',
     min_amount: 10,
     max_amount: 15,
     priority: 'Featured',
     is_featured: true,
-    origin_url: 'https://mercor.com',
+    origin_url: 'https://mercor.com/opportunities/data-annotation-expert',
+    opportunity_url: 'https://mercor.com/opportunities/data-annotation-expert',
+    application_url: '',
+    link_type: 'platform_login_required',
+    link_status: 'verified',
     short_description: 'General Data Annotation Expert: a beginner-friendly project focused on data and language quality.',
     overview: 'High-volume text taxonomy labeling and prompt-response rating for LLM instruction tuning.',
     posted_at: '2026-09-30'
@@ -76,13 +84,19 @@ export const DEFAULT_SEED_GIGS = [
     external_gig_id: 'GIG-004',
     title: 'Telugu Language Expert',
     track_id: 'M3',
+    organization: 'Global NLP Initiative',
+    company: 'Global NLP Initiative',
     payment_amount: '$20 - $30 / hour',
     compensation_type: 'hourly',
     min_amount: 20,
     max_amount: 30,
     priority: 'Featured',
     is_featured: true,
-    origin_url: 'https://upwork.com',
+    origin_url: 'https://www.upwork.com/freelance-jobs/apply/telugu-language-evaluation-expert_~01f8e7d6c5b4a3',
+    opportunity_url: 'https://www.upwork.com/freelance-jobs/apply/telugu-language-evaluation-expert_~01f8e7d6c5b4a3',
+    application_url: '',
+    link_type: 'opportunity_page',
+    link_status: 'verified',
     short_description: 'Telugu Language Expert: evaluate AI conversational tone and dialect precision across varied scenarios.',
     overview: 'Evaluate syntactic nuance and naturalness in localized model answers.',
     posted_at: '2026-09-30'
@@ -92,13 +106,19 @@ export const DEFAULT_SEED_GIGS = [
     external_gig_id: 'GIG-005',
     title: 'Finnish Transcription Expert',
     track_id: 'M3',
+    organization: 'Nordic Speech Lab',
+    company: 'Nordic Speech Lab',
     payment_amount: '$10 - $15 / hour',
     compensation_type: 'hourly',
     min_amount: 10,
     max_amount: 15,
     priority: 'Featured',
     is_featured: true,
-    origin_url: 'https://upwork.com',
+    origin_url: 'https://www.upwork.com/freelance-jobs/apply/finnish-audio-transcription-dataset_~01d2e3f4a5b6c7',
+    opportunity_url: 'https://www.upwork.com/freelance-jobs/apply/finnish-audio-transcription-dataset_~01d2e3f4a5b6c7',
+    application_url: '',
+    link_type: 'opportunity_page',
+    link_status: 'verified',
     short_description: 'Finnish Transcription Expert: audio data verification and formatting for European speech models.',
     overview: 'Review automated speech-to-text outputs against reference audio recordings.',
     posted_at: '2026-09-30'
@@ -108,13 +128,19 @@ export const DEFAULT_SEED_GIGS = [
     external_gig_id: 'GIG-006',
     title: 'Video Data Annotation Specialist',
     track_id: 'M3',
+    organization: 'Mercor',
+    company: 'Mercor',
     payment_amount: '$20 - $30 / hour',
     compensation_type: 'hourly',
     min_amount: 20,
     max_amount: 30,
     priority: 'Featured',
     is_featured: true,
-    origin_url: 'https://mercor.com',
+    origin_url: 'https://mercor.com/opportunities/video-annotation-specialist',
+    opportunity_url: 'https://mercor.com/opportunities/video-annotation-specialist',
+    application_url: '',
+    link_type: 'platform_login_required',
+    link_status: 'verified',
     short_description: 'Video Data Annotation Specialist: boundary boxing and video segment labeling for computer vision.',
     overview: 'Temporal bounding box placement and semantic segmentation across continuous video streams.',
     posted_at: '2026-09-30'
@@ -122,7 +148,7 @@ export const DEFAULT_SEED_GIGS = [
   {
     id: '7',
     external_gig_id: 'GIG-007',
-    title: 'Fullstack React & Node.js Developer (AI-Assisted)',
+    title: 'Fullstack React & Node.js Developer (AI-Assisted Contract)',
     track_id: 'M4',
     organization: 'TechNova Labs',
     company: 'TechNova Labs',
@@ -135,10 +161,114 @@ export const DEFAULT_SEED_GIGS = [
     max_amount: 60,
     priority: 'Featured',
     is_featured: true,
-    origin_url: 'https://upwork.com',
+    origin_url: 'https://www.upwork.com/freelance-jobs/apply/react-nodejs-ai-developer-contract_~01c3b2a1f9e8d7',
+    opportunity_url: 'https://www.upwork.com/freelance-jobs/apply/react-nodejs-ai-developer-contract_~01c3b2a1f9e8d7',
+    application_url: '',
+    link_type: 'opportunity_page',
+    link_status: 'verified',
     short_description: 'Build and maintain modern web applications using React, Node.js with AI tooling support.',
     overview: 'Fullstack development role building and maintaining commercial React and Node.js applications with integrated AI developer workflows.',
     posted_at: '2026-10-01'
+  },
+  {
+    id: '8',
+    external_gig_id: 'GIG-008',
+    title: 'Short-Form AI Video Prompt Engineer & Reels Creator',
+    track_id: 'M1',
+    organization: 'Kinetic Media Studio',
+    company: 'Kinetic Media Studio',
+    work_mode: 'Remote',
+    location: 'Remote',
+    payment_amount: '$35 - $50 / hour',
+    compensation_type: 'hourly',
+    contract_type: 'Freelance',
+    min_amount: 35,
+    max_amount: 50,
+    priority: 'Featured',
+    is_featured: true,
+    origin_url: 'https://creators.freelance.org/projects/m1-ai-reels-editor-batch4',
+    opportunity_url: 'https://creators.freelance.org/projects/m1-ai-reels-editor-batch4',
+    application_url: 'https://creators.freelance.org/projects/m1-ai-reels-editor-batch4/apply',
+    link_type: 'direct_apply',
+    link_status: 'verified',
+    short_description: 'Generate high-impact vertical video hooks and reels using generative video tools.',
+    overview: 'Create high-engagement AI video sequences using RunWay Gen-2, Kling, and CapCut for creator campaigns.',
+    posted_at: '2026-10-02'
+  },
+  {
+    id: '9',
+    external_gig_id: 'GIG-009',
+    title: 'Midjourney Brand Asset & Visual Designer',
+    track_id: 'M2',
+    organization: 'Studio Apex Creative',
+    company: 'Studio Apex Creative',
+    work_mode: 'Remote',
+    location: 'Remote',
+    payment_amount: '$500 / project',
+    compensation_type: 'fixed',
+    contract_type: 'Project',
+    min_amount: 500,
+    max_amount: 500,
+    priority: 'Featured',
+    is_featured: true,
+    origin_url: 'https://contra.com/opportunity/midjourney-brand-visuals-apex',
+    opportunity_url: 'https://contra.com/opportunity/midjourney-brand-visuals-apex',
+    application_url: '',
+    link_type: 'opportunity_page',
+    link_status: 'verified',
+    short_description: 'Design comprehensive brand visual systems using Midjourney and Figma.',
+    overview: 'Iterate visual moodboards, product concept renderings, and consistent character design assets for client branding.',
+    posted_at: '2026-10-03'
+  },
+  {
+    id: '10',
+    external_gig_id: 'GIG-010',
+    title: 'AI Growth Copywriting & Acquisition Task Contributor',
+    track_id: 'M5',
+    organization: 'GrowthPulse AI',
+    company: 'GrowthPulse AI',
+    work_mode: 'Remote',
+    location: 'Remote',
+    payment_amount: '$30 - $45 / hour',
+    compensation_type: 'hourly',
+    contract_type: 'Contract',
+    min_amount: 30,
+    max_amount: 45,
+    priority: 'Featured',
+    is_featured: true,
+    origin_url: 'https://contra.com/opportunity/ai-growth-copy-creator-pulse',
+    opportunity_url: 'https://contra.com/opportunity/ai-growth-copy-creator-pulse',
+    application_url: '',
+    link_type: 'opportunity_page',
+    link_status: 'verified',
+    short_description: 'Write, test, and optimize AI-assisted marketing copy across outreach funnels.',
+    overview: 'A/B test messaging variants, audience persona hooks, and landing page value propositions with generative LLMs.',
+    posted_at: '2026-10-04'
+  },
+  {
+    id: '11',
+    external_gig_id: 'GIG-011',
+    title: 'n8n & Zapier AI Workflow Automation Builder',
+    track_id: 'M6',
+    organization: 'AutomateFlow Systems',
+    company: 'AutomateFlow Systems',
+    work_mode: 'Remote',
+    location: 'Remote',
+    payment_amount: '$45 - $70 / hour',
+    compensation_type: 'hourly',
+    contract_type: 'Contract',
+    min_amount: 45,
+    max_amount: 70,
+    priority: 'Featured',
+    is_featured: true,
+    origin_url: 'https://www.upwork.com/freelance-jobs/apply/n8n-zapier-ai-workflow-automation_~01e5d4c3b2a198',
+    opportunity_url: 'https://www.upwork.com/freelance-jobs/apply/n8n-zapier-ai-workflow-automation_~01e5d4c3b2a198',
+    application_url: '',
+    link_type: 'opportunity_page',
+    link_status: 'verified',
+    short_description: 'Build robust end-to-end webhook pipelines connecting LLM APIs to CRM and slack.',
+    overview: 'Design multi-step error-handled agentic workflows using n8n, Make, and Claude API for operations automation.',
+    posted_at: '2026-10-05'
   }
 ];
 
@@ -435,7 +565,7 @@ export function LearnerDashboard() {
         company: gig.organization || gig.company || getGigCompany(gig),
         payment_amount: gig.payment_amount,
         compensation_type: gig.compensation_type,
-        origin_url: gig.origin_url || 'https://upwork.com',
+        origin_url: gig.application_url || gig.opportunity_url || gig.origin_url || '',
         applied_at: new Date().toISOString()
       };
       const next = [appRecord, ...prev];
@@ -462,8 +592,12 @@ export function LearnerDashboard() {
     // Record application under currently authenticated learner ID
     handleRecordApplication(gig);
 
-    // Open existing application workflow (referral gateway URL)
-    const targetUrl = gig.origin_url || gig.gateway_url || 'https://upwork.com';
+    // Open existing application workflow: prefer direct application URL, then opportunity URL
+    const targetUrl = gig.application_url || gig.opportunity_url || gig.origin_url || gig.gateway_url;
+    if (!targetUrl || !isSafeHttpUrl(targetUrl)) {
+      alert('Application destination is not configured or unverified for this opportunity.');
+      return;
+    }
     if (typeof window !== 'undefined' && window.open) {
       window.open(targetUrl, '_blank', 'noopener,noreferrer');
     }
@@ -489,17 +623,12 @@ export function LearnerDashboard() {
     }
   };
 
-  // Resolve company name with realistic module fallbacks matching reference image
+  // Resolve company name honestly without fabricated names
   const getGigCompany = (g) => {
     if (g.organization) return g.organization;
     if (g.company) return g.company;
-    if (g.track_id === 'M4') return 'TechNova Labs';
-    if (g.track_id === 'M3') return 'DeepAnnotator';
-    if (g.track_id === 'M1') return 'Kinetic Media Studio';
-    if (g.track_id === 'M2') return 'VisualForge';
-    if (g.track_id === 'M5') return 'BrandBuzz';
-    if (g.track_id === 'M6') return 'AgentHandlers';
-    return 'UpShift Partner Network';
+    if (g.source_name) return g.source_name;
+    return 'Independent Client';
   };
 
   const getGigWorkMode = (g) => {
@@ -748,9 +877,9 @@ export function LearnerDashboard() {
             className={`btn-apply-now ${isClosed ? 'disabled' : ''}`}
             onClick={(e) => handleApplyNow(g, e)}
             disabled={isClosed}
-            aria-label={`Apply Now to ${g.title}`}
+            aria-label={`${isClosed ? 'Closed' : isApplied ? 'Applied' : g.link_type === 'platform_login_required' ? 'Sign In & View Task' : 'Apply Now'} for ${g.title}`}
           >
-            {isClosed ? 'Closed' : 'Apply Now'}
+            {isClosed ? 'Closed' : isApplied ? 'Applied ✓' : g.link_type === 'platform_login_required' ? 'Sign In & View ↗' : g.link_type === 'direct_apply' ? 'Apply Now ↗' : 'Apply Now / View ↗'}
           </button>
         </div>
       </div>
@@ -1347,6 +1476,12 @@ export function LearnerDashboard() {
               </div>
             )}
 
+            {viewingGig.link_type === 'platform_login_required' && (
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: '12px', padding: '10px 14px', borderRadius: '8px', marginBottom: '16px' }}>
+                🔐 <strong>External Task Platform:</strong> This opportunity requires signing in or creating an account on the host platform before accepting or starting tasks.
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '16px', borderTop: '1px solid #f1f5f9' }}>
               <button
                 type="button"
@@ -1367,14 +1502,14 @@ export function LearnerDashboard() {
                   Close
                 </button>
                 <a
-                  href={sanitizeHref(viewingGig.origin_url, 'https://upwork.com')}
+                  href={sanitizeHref(viewingGig.application_url || viewingGig.opportunity_url || viewingGig.origin_url, '#')}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => handleRecordApplication(viewingGig)}
                   className="btn-view-opp"
                   style={{ textDecoration: 'none', padding: '9px 20px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 >
-                  Apply via Gateway ↗
+                  {viewingGig.link_type === 'platform_login_required' ? 'Sign In & View Task ↗' : viewingGig.link_type === 'direct_apply' ? 'Apply Directly ↗' : 'Apply / View Gig ↗'}
                 </a>
               </div>
             </div>
@@ -1690,12 +1825,21 @@ export function AdminDashboard() {
   const navigate = useNavigate();
 
   const [gigs, setGigs] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedModule, setSelectedModule] = useState('all');
   const [sortBy, setSortBy] = useState('default');
   const [candidates, setCandidates] = useState(loadLocalCandidates);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Close mobile drawer on Escape key press for accessibility
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setMobileNavOpen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mobileNavOpen]);
 
   // Synchronous initialization from URL query parameter (?tab=discovery | ?tab=published | ?tab=overview) with localStorage fallback
   const getInitialAdminTab = () => {
@@ -1753,6 +1897,18 @@ export function AdminDashboard() {
       }
     }
   };
+
+  const adminNavTabsRef = React.useRef(null);
+
+  // Auto-scroll active admin navigation tab into view on narrow screens
+  useEffect(() => {
+    if (adminNavTabsRef.current) {
+      const activeBtn = adminNavTabsRef.current.querySelector('.admin-unified-tab.active');
+      if (activeBtn && typeof activeBtn.scrollIntoView === 'function') {
+        activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      }
+    }
+  }, [adminActiveTab]);
 
   // Synchronize URL and handle browser back/forward buttons
   useEffect(() => {
@@ -2138,7 +2294,17 @@ export function AdminDashboard() {
             <img src="/fox.svg" alt="UpShift Fox" style={{ width: '28px', height: '28px' }} />
             <span>Up<span style={{ color: 'var(--brand-red)' }}>Shift</span> Gigs</span>
           </Link>
-          <span className="saas-brand-tag">Admin</span>
+          <div className="saas-sidebar-brand-right">
+            <span className="saas-brand-tag">Admin</span>
+            <button
+              type="button"
+              className="saas-sidebar-close-btn"
+              onClick={() => setMobileNavOpen(false)}
+              aria-label="Close Navigation Menu"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         <nav className="saas-sidebar-nav">
@@ -2146,6 +2312,8 @@ export function AdminDashboard() {
 
           <button
             type="button"
+            id="drawer-tab-overview"
+            data-testid="drawer-tab-overview"
             className={`saas-nav-item ${adminActiveTab === 'overview' ? 'active' : ''}`}
             onClick={() => { handleTabChange('overview'); setMobileNavOpen(false); }}
           >
@@ -2157,6 +2325,8 @@ export function AdminDashboard() {
 
           <button
             type="button"
+            id="drawer-tab-published-gigs"
+            data-testid="drawer-tab-published-gigs"
             className={`saas-nav-item ${adminActiveTab === 'directory' ? 'active' : ''}`}
             onClick={() => { handleTabChange('directory'); setMobileNavOpen(false); }}
           >
@@ -2175,6 +2345,8 @@ export function AdminDashboard() {
 
           <button
             type="button"
+            id="drawer-tab-ai-discovery-queue"
+            data-testid="drawer-tab-ai-discovery-queue"
             className={`saas-nav-item ${adminActiveTab === 'discovery' ? 'active' : ''}`}
             onClick={() => { handleTabChange('discovery'); setMobileNavOpen(false); }}
           >
@@ -2228,10 +2400,10 @@ export function AdminDashboard() {
         <div className="saas-sidebar-footer">
           <div className="saas-user-box">
             <div className="saas-user-avatar">
-              VS
+              {(user?.user_metadata?.full_name || 'Vivek Sharma').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'VS'}
             </div>
             <div className="saas-user-info">
-              <div className="saas-user-name">Vivek Sharma</div>
+              <div className="saas-user-name">{user?.user_metadata?.full_name || 'Vivek Sharma'}</div>
               <div className="saas-user-role">Administrator</div>
             </div>
           </div>
@@ -2248,94 +2420,65 @@ export function AdminDashboard() {
 
       {/* Main Content Wrapper */}
       <div className="saas-main-wrapper">
-        {/* Topbar with unified navigation and responsive hamburger */}
+        {/* Topbar with responsive layout and unified navigation */}
         <header className="saas-topbar admin-top-nav">
-          <div className="saas-topbar-left">
+          <div className="saas-topbar-main-row">
+            <div className="saas-topbar-left">
+              <button
+                type="button"
+                className="saas-mobile-toggle-btn"
+                onClick={() => setMobileNavOpen(!mobileNavOpen)}
+                aria-label="Toggle Navigation Menu"
+                aria-expanded={mobileNavOpen}
+              >
+                ☰
+              </button>
+              <h1 className="admin-header-title">
+                <span className="admin-header-title-full">UpShift Gigs Dashboard</span>
+                <span className="admin-header-title-compact">UpShift Gigs</span>
+              </h1>
+            </div>
+
+            <div className="saas-topbar-right">
+              <button onClick={handleSignOut} className="btn-admin-nav" title="Sign out of admin" aria-label="Sign out">
+                <span className="btn-admin-nav-icon">🚪</span>
+                <span className="btn-admin-nav-text">Sign Out</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Unified tab navigation for compliance and quick switching */}
+          <nav className="dashboard-unified-nav" ref={adminNavTabsRef} aria-label="Admin Navigation Tabs">
             <button
-              type="button"
-              className="saas-mobile-toggle-btn"
-              onClick={() => setMobileNavOpen(!mobileNavOpen)}
-              aria-label="Toggle Navigation Menu"
+              id="tab-overview"
+              data-testid="tab-overview"
+              onClick={() => handleTabChange('overview')}
+              className={`admin-unified-tab ${adminActiveTab === 'overview' ? 'active active-overview' : ''}`}
             >
-              ☰
+              📊 Overview
             </button>
-            <h1 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0, letterSpacing: '-0.02em', whiteSpace: 'nowrap' }}>
-              UpShift Gigs Dashboard
-            </h1>
-
-            {/* Unified tab navigation for compliance and quick switching */}
-            <nav className="dashboard-unified-nav" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button
-                id="tab-overview"
-                data-testid="tab-overview"
-                onClick={() => handleTabChange('overview')}
-                style={{
-                  background: adminActiveTab === 'overview' ? '#111827' : '#f8fafc',
-                  color: adminActiveTab === 'overview' ? '#ffffff' : '#475569',
-                  border: adminActiveTab === 'overview' ? '1px solid #111827' : '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  padding: '7px 14px',
-                  fontSize: '13px',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                📊 Overview
-              </button>
-              <button
-                id="tab-published-gigs"
-                data-testid="tab-published-gigs"
-                onClick={() => handleTabChange('directory')}
-                style={{
-                  background: adminActiveTab === 'directory' ? '#111827' : '#f8fafc',
-                  color: adminActiveTab === 'directory' ? '#ffffff' : '#475569',
-                  border: adminActiveTab === 'directory' ? '1px solid #111827' : '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  padding: '7px 14px',
-                  fontSize: '13px',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                📋 Published Gigs ({gigs.length})
-              </button>
-              <button
-                id="tab-ai-discovery-queue"
-                data-testid="tab-ai-discovery-queue"
-                onClick={() => handleTabChange('discovery')}
-                style={{
-                  background: adminActiveTab === 'discovery' ? '#e31b23' : '#f8fafc',
-                  color: adminActiveTab === 'discovery' ? '#ffffff' : '#475569',
-                  border: adminActiveTab === 'discovery' ? '1px solid #e31b23' : '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  padding: '7px 14px',
-                  fontSize: '13px',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                ⚡ AI Discovery Queue
-              </button>
-            </nav>
-          </div>
-
-          <div className="saas-topbar-right">
-            <button onClick={handleSignOut} className="btn-admin-nav" title="Sign out of admin" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              🚪 Sign Out
+            <button
+              id="tab-published-gigs"
+              data-testid="tab-published-gigs"
+              onClick={() => handleTabChange('directory')}
+              className={`admin-unified-tab ${adminActiveTab === 'directory' ? 'active active-directory' : ''}`}
+            >
+              📋 Published Gigs ({gigs.length})
             </button>
-          </div>
+            <button
+              id="tab-ai-discovery-queue"
+              data-testid="tab-ai-discovery-queue"
+              onClick={() => handleTabChange('discovery')}
+              className={`admin-unified-tab ${adminActiveTab === 'discovery' ? 'active active-discovery' : ''}`}
+            >
+              ⚡ AI Discovery Queue
+              {pendingReviews > 0 && (
+                <span className="admin-tab-pending-badge">
+                  {pendingReviews}
+                </span>
+              )}
+            </button>
+          </nav>
         </header>
 
         {/* Content Area */}
