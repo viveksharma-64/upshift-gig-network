@@ -265,7 +265,35 @@ export async function verifyLinkDeep(rawUrl, options = {}) {
   try {
     const res = await activeFetcher.safeFetch(rawUrl);
 
-    // 3a. SSRF Block
+    // 3a-1. DNS Failure (NXDOMAIN, ENOTFOUND, unresolvable host)
+    const isDnsFailure = res.error && (
+      res.error.includes('DNS lookup failed') ||
+      res.error.includes('ENOTFOUND') ||
+      res.error.includes('NXDOMAIN') ||
+      res.error.includes('EAI_AGAIN') ||
+      res.error.includes('No address records')
+    );
+    if (!res.ok && isDnsFailure) {
+      evidence.push(`Domain name resolution failed (NXDOMAIN / host unreachable): ${res.error}`);
+      return createVerificationResult({
+        accessible: false,
+        link_type: LINK_TYPE.UNVERIFIED,
+        link_status: LINK_STATUS.FAILED,
+        original_url: rawUrl,
+        resolved_url: res.finalUrl || rawUrl,
+        status_code: null,
+        is_closed: false,
+        is_paused: false,
+        is_homepage: false,
+        is_search_page: false,
+        requires_login: false,
+        reason: `DNS resolution failed: Domain does not exist or host is unreachable (${res.error}).`,
+        evidence,
+        checked_at: checkedAt
+      });
+    }
+
+    // 3a-2. SSRF Block
     if (!res.ok && res.status === 400 && ((res.statusText && res.statusText.includes('SSRF Policy')) || (res.error && res.error.includes('SSRF destination')))) {
       evidence.push(`SSRF policy blocked request to SSRF destination: ${res.error || 'Destination address prohibited'}`);
       return createVerificationResult({
@@ -527,6 +555,7 @@ export async function verifyLinkDeep(rawUrl, options = {}) {
 
   } catch (err) {
     const isTimeout = err.name === 'AbortError' || err.message?.includes('timeout');
+    const isDnsError = err.code === 'ENOTFOUND' || err.message?.includes('ENOTFOUND') || err.message?.includes('getaddrinfo') || err.message?.includes('NXDOMAIN');
     evidence.push(`Fetch exception: ${err.message}`);
     return createVerificationResult({
       accessible: false,
@@ -542,7 +571,9 @@ export async function verifyLinkDeep(rawUrl, options = {}) {
       requires_login: false,
       reason: isTimeout
         ? 'Request timed out; inconclusive for activity.'
-        : `Network error during verification: ${err.message}`,
+        : isDnsError
+          ? `DNS resolution failed: Domain does not exist or host is unreachable (${err.message})`
+          : `Network error during verification: ${err.message}`,
       evidence,
       checked_at: checkedAt
     });

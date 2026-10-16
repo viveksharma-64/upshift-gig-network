@@ -377,6 +377,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
       };
       const res = await publishCandidateToGigs(approvedCandidate, { role: 'admin' });
       if (!res.success) {
+        setActionErrorMsg(`❌ Publishing failed: ${res.error}`);
         alert(`❌ Publishing failed: ${res.error}`);
         return;
       }
@@ -472,6 +473,35 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
     displaySuccessMsg(`Candidate resumed to pending review: "${cand.title}"`);
     if (onRefreshGigs) onRefreshGigs();
     fetchOperationalStatus().then(st => st && setOperationalStatus(st)).catch(() => {});
+  };
+
+  // Recheck Link reachability on demand
+  const handleRecheckLink = async (cand) => {
+    if (!cand || actionLoading) return;
+    setActionLoading(true);
+    setActionSuccessMsg('');
+    setActionErrorMsg('');
+    try {
+      const { recheckOpportunityAvailability } = await import('../discovery/candidateStore.js');
+      const res = await recheckOpportunityAvailability(cand);
+      const updated = {
+        ...cand,
+        ...res.candidate,
+        link_status: res.healthy ? 'verified' : (res.candidate?.link_status || 'failed'),
+        activity_status: res.healthy ? (cand.activity_status === 'Stopped' ? 'Active' : cand.activity_status) : 'Stopped',
+        link_evidence: res.reason ? [res.reason] : (cand.link_evidence || [])
+      };
+      updateCandidateInList(updated);
+      if (res.healthy) {
+        displaySuccessMsg(`✓ Opportunity destination verified reachable: ${cand.opportunity_url || cand.original_url}`);
+      } else {
+        setActionErrorMsg(`Link reachability check failed: ${res.reason}`);
+      }
+    } catch (err) {
+      setActionErrorMsg(`Recheck error: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   // 7. Save Edits (with Referral Audit History tracking, REF-01, REF-04, REF-05)
@@ -999,8 +1029,18 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: '#64748b', padding: '6px 10px', background: '#f8fafc', borderRadius: '6px', marginBottom: '8px', border: '1px solid #f1f5f9' }}>
                     <span>
                       Opportunity Link:{' '}
-                      <strong style={{ color: c.link_status === 'closed' ? '#dc2626' : c.link_status === 'uncertain' ? '#d97706' : '#16a34a' }}>
-                        {c.link_status === 'closed' ? 'Closed/Broken' : c.link_status === 'uncertain' ? 'Unchecked/Uncertain' : 'Live Page Verified'}
+                      <strong style={{
+                        color: (c.link_status === 'closed' || c.link_status === 'failed' || normActivity === 'STOPPED' || Boolean(c.health_check_error))
+                          ? '#dc2626'
+                          : (c.link_status === 'uncertain' || c.link_status === 'unverified')
+                          ? '#d97706'
+                          : '#16a34a'
+                      }}>
+                        {(c.link_status === 'closed' || c.link_status === 'failed' || normActivity === 'STOPPED' || Boolean(c.health_check_error))
+                          ? 'Closed / Broken'
+                          : (c.link_status === 'uncertain' || c.link_status === 'unverified')
+                          ? 'Unchecked / Uncertain'
+                          : 'Live Page Verified'}
                       </strong>
                     </span>
                     {isSafeHttpUrl(c.opportunity_url || c.canonical_url || c.original_url) && (
@@ -1008,10 +1048,14 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                         href={c.opportunity_url || c.canonical_url || c.original_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{ color: '#2563eb', textDecoration: 'none', fontWeight: '600' }}
+                        style={{
+                          color: (c.link_status === 'closed' || c.link_status === 'failed' || normActivity === 'STOPPED') ? '#dc2626' : '#2563eb',
+                          textDecoration: 'none',
+                          fontWeight: '600'
+                        }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        Open Opp ↗
+                        {(c.link_status === 'closed' || c.link_status === 'failed' || normActivity === 'STOPPED') ? 'Inspect Broken Link ↗' : 'Open Opp ↗'}
                       </a>
                     )}
                   </div>
@@ -1427,9 +1471,9 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                       )}
                     </div>
 
-                    <div>
-                      <strong style={{ color: '#334155' }}>Application / Task-Start URL:</strong>{' '}
-                      {inspectingCandidate.application_url && isSafeHttpUrl(inspectingCandidate.application_url) ? (
+                    {inspectingCandidate.application_url && isSafeHttpUrl(inspectingCandidate.application_url) && inspectingCandidate.application_url !== (inspectingCandidate.opportunity_url || inspectingCandidate.original_url) && (
+                      <div>
+                        <strong style={{ color: '#334155' }}>Application / Task-Start URL:</strong>{' '}
                         <a
                           href={inspectingCandidate.application_url}
                           target="_blank"
@@ -1438,40 +1482,78 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                         >
                           {inspectingCandidate.application_url} ↗
                         </a>
-                      ) : (
-                        <span style={{ color: '#64748b' }}>None verified (Application action accessed directly on opportunity page)</span>
-                      )}
-                    </div>
-
-                    {inspectingCandidate.resolved_url && inspectingCandidate.resolved_url !== (inspectingCandidate.opportunity_url || inspectingCandidate.original_url) && (
-                      <div>
-                        <strong style={{ color: '#334155' }}>Resolved Destination:</strong>{' '}
-                        <span style={{ color: '#475569', wordBreak: 'break-all' }}>{inspectingCandidate.resolved_url}</span>
                       </div>
                     )}
 
-                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
-                      <div>
+                    {(() => {
+                      const cleanResolved = (inspectingCandidate.resolved_url || '').trim().replace(/\/$/, '').toLowerCase();
+                      const cleanOpp = (inspectingCandidate.opportunity_url || inspectingCandidate.original_url || '').trim().replace(/\/$/, '').toLowerCase();
+                      const isSubstantiveRedirect = cleanResolved && cleanResolved !== cleanOpp && cleanResolved.replace(/^https?:\/\/(?:www\.)?/, '') !== cleanOpp.replace(/^https?:\/\/(?:www\.)?/, '');
+                      if (!isSubstantiveRedirect) return null;
+                      return (
+                        <div>
+                          <strong style={{ color: '#334155' }}>Resolved Destination:</strong>{' '}
+                          <span style={{ color: '#475569', wordBreak: 'break-all' }}>{inspectingCandidate.resolved_url}</span>
+                        </div>
+                      );
+                    })()}
+
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <strong style={{ color: '#334155' }}>Link Reachability:</strong>{' '}
-                        <span style={{
-                          color: inspectingCandidate.link_status === 'closed' ? '#dc2626' : inspectingCandidate.link_status === 'uncertain' ? '#d97706' : '#16a34a',
-                          fontWeight: '700'
-                        }}>
-                          {inspectingCandidate.link_status === 'closed' ? 'Closed/Broken' : inspectingCandidate.link_status === 'uncertain' ? 'Unchecked/Uncertain' : 'Live Page Reachable (Verified)'}
-                        </span>
+                        {(() => {
+                          const isBroken = inspectingCandidate.link_status === 'closed' ||
+                            inspectingCandidate.link_status === 'failed' ||
+                            normalizeActivityStatus(inspectingCandidate.activity_status) === ACTIVITY_STATUS.STOPPED ||
+                            Boolean(inspectingCandidate.health_check_error);
+                          const isUncertain = inspectingCandidate.link_status === 'uncertain' || inspectingCandidate.link_status === 'unverified';
+
+                          return (
+                            <span style={{
+                              color: isBroken ? '#dc2626' : isUncertain ? '#d97706' : '#16a34a',
+                              fontWeight: '700'
+                            }}>
+                              {isBroken ? 'Closed / Broken (NXDOMAIN / Inaccessible)' : isUncertain ? 'Unchecked / Uncertain' : 'Live Page Reachable (Verified)'}
+                            </span>
+                          );
+                        })()}
                         {inspectingCandidate.last_checked_at && (
-                          <span style={{ color: '#94a3b8', marginLeft: '6px' }}>
+                          <span style={{ color: '#94a3b8', fontSize: '11px' }}>
                             (checked {inspectingCandidate.last_checked_at?.split('T')[0]})
                           </span>
                         )}
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRecheckLink(inspectingCandidate)}
+                        disabled={actionLoading}
+                        style={{
+                          background: '#f1f5f9',
+                          border: '1px solid #cbd5e1',
+                          color: '#334155',
+                          padding: '3px 9px',
+                          borderRadius: '5px',
+                          fontSize: '11px',
+                          fontWeight: '700',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        🔄 Recheck Link
+                      </button>
                     </div>
 
-                    {inspectingCandidate.link_evidence && (
-                      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '8px 12px', fontSize: '11.5px', color: '#475569' }}>
-                        <strong>Link Audit Evidence:</strong> {inspectingCandidate.link_evidence}
-                      </div>
-                    )}
+                    {(() => {
+                      const evidenceText = Array.isArray(inspectingCandidate.link_evidence)
+                        ? inspectingCandidate.link_evidence.filter(Boolean).join('; ')
+                        : (typeof inspectingCandidate.link_evidence === 'string' ? inspectingCandidate.link_evidence.trim() : '');
+                      if (!evidenceText) return null;
+                      return (
+                        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '8px 12px', fontSize: '11.5px', color: '#475569' }}>
+                          <strong>Link Audit Evidence:</strong> {evidenceText}
+                        </div>
+                      );
+                    })()}
 
                     <div style={{ fontSize: '11.5px', color: '#64748b', fontStyle: 'italic', background: '#f1f5f9', padding: '6px 10px', borderRadius: '4px' }}>
                       ℹ️ Note: Webpage accessibility verifies destination reachability only; it does not confirm freelance or task-based qualification.

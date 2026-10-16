@@ -434,14 +434,14 @@ export function LearnerDashboard() {
           .select('*')
           .order('created_at', { ascending: false });
 
-        if (!error && data && data.length > 0) {
+        if (!error && Array.isArray(data)) {
           setGigs(deduplicateGigList(data));
         } else {
-          setGigs(deduplicateGigList(DEFAULT_SEED_GIGS));
+          setGigs([]);
         }
       } catch (err) {
         console.warn('Error loading gigs for learner:', err);
-        setGigs(deduplicateGigList(DEFAULT_SEED_GIGS));
+        setGigs([]);
       } finally {
         setLoading(false);
       }
@@ -1825,6 +1825,7 @@ export function AdminDashboard() {
   const navigate = useNavigate();
 
   const [gigs, setGigs] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedModule, setSelectedModule] = useState('all');
   const [sortBy, setSortBy] = useState('default');
@@ -1978,14 +1979,14 @@ export function AdminDashboard() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (!error && data && data.length > 0) {
+      if (!error && Array.isArray(data)) {
         setGigs(deduplicateGigList(data));
       } else {
-        setGigs(deduplicateGigList(DEFAULT_SEED_GIGS));
+        setGigs([]);
       }
     } catch (err) {
       console.warn('Error fetching gigs:', err);
-      setGigs(deduplicateGigList(DEFAULT_SEED_GIGS));
+      setGigs([]);
     } finally {
       setLoading(false);
     }
@@ -2795,7 +2796,16 @@ export function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredAndSortedGigs.length === 0 ? (
+                    {loading ? (
+                      <tr>
+                        <td colSpan="5" style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                            <span role="status" aria-hidden="true">⏳</span>
+                            <span>Loading published gigs from database...</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : filteredAndSortedGigs.length === 0 ? (
                       <tr>
                         <td colSpan="5" style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
                           No published gigs match your search or filter criteria.

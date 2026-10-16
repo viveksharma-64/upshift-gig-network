@@ -326,21 +326,21 @@ describe('Regression: AI Discovery Queue Sync Store State Preservation', () => {
     assert.ok(rejected.reviewed_at);
   });
 
-  it('syncing 8 remote candidates cannot reduce a local queue of 221 to 8', async () => {
+  it('syncing 8 remote candidates cannot reduce a local queue of candidates to 8', async () => {
     const {
       saveLocalCandidates,
       loadLocalCandidates,
       fetchCandidateQueue
     } = await import('../src/discovery/candidateStore.js');
 
-    // Seed full set of 221 candidates in local cache
-    assert.equal(allCandidates.length, 221, 'candidates.json must contain 221 candidates');
+    // Seed full set of candidates in local cache
+    assert.ok(allCandidates.length >= 221, 'candidates.json must contain at least 221 candidates');
     saveLocalCandidates(allCandidates);
 
     const initialLocal = loadLocalCandidates();
-    assert.equal(initialLocal.length, 221);
+    assert.equal(initialLocal.length, allCandidates.length);
     const initialPending = initialLocal.filter(c => c.status === 'pending_review').length;
-    assert.equal(initialPending, 85);
+    assert.ok(initialPending >= 85);
 
     // Mock remote server returning only 8 candidates (e.g. initial fixture batch)
     const remote8 = allCandidates.slice(0, 8).map(c => ({
@@ -364,18 +364,18 @@ describe('Regression: AI Discovery Queue Sync Store State Preservation', () => {
     const res = await fetchCandidateQueue();
 
     // Verify queue was NOT truncated to 8!
-    assert.equal(res.length, 221, 'Syncing 8 remote candidates must NOT reduce queue from 221 to 8');
+    assert.equal(res.length, allCandidates.length, `Syncing 8 remote candidates must NOT reduce queue from ${allCandidates.length} to 8`);
     assert.equal(res.syncSuccess, true);
     assert.equal(res.syncSource, 'api');
     assert.equal(res.isFallback, false);
 
-    // Verify localStorage also retains all 221 candidates
+    // Verify localStorage also retains all candidates
     const persisted = JSON.parse(mockLocalStorage.getItem('upshift_discovery_candidates'));
-    assert.equal(persisted.length, 221, 'Persisted localStorage must retain 221 candidates');
+    assert.equal(persisted.length, allCandidates.length, 'Persisted localStorage must retain all candidates');
 
     // Verify pending review count is preserved
     const resPending = res.filter(c => c.status === 'pending_review').length;
-    assert.equal(resPending, 85, 'Pending count must remain 85');
+    assert.equal(resPending, initialPending, `Pending count must remain ${initialPending}`);
 
     // Verify matching 8 received updated remote authoritative titles
     for (let i = 0; i < 8; i++) {

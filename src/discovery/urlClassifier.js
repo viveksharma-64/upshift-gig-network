@@ -98,9 +98,10 @@ export function analyzeUrlStructure(rawUrl) {
       };
     }
 
-    // 2. Check for search results or category index pages
+    // 2. Check for search results or category index pages (excluding deep links with explicit listing IDs)
+    const hasSpecificListingParam = /[?&](?:externalKey|jobId|job_id|opportunityId|listingId|post_id)=/i.test(search);
     const hasSearchQuery = /[?&](?:q|query|search|keywords|keyword)=/i.test(search);
-    const isDirectoryIndex = SEARCH_OR_INDEX_PATH_REGEX.test(pathname) || (hasSearchQuery && pathname.length <= 15) || /\/jobs\/?$/i.test(pathname);
+    const isDirectoryIndex = !hasSpecificListingParam && (SEARCH_OR_INDEX_PATH_REGEX.test(pathname) || (hasSearchQuery && pathname.length <= 15) || /\/jobs\/?$/i.test(pathname));
     if (isDirectoryIndex) {
       return {
         isValid: true,

@@ -659,8 +659,27 @@ export async function recheckOpportunityAvailability(candidate, options = {}) {
           };
         }
       }
-    } catch {
-      // In offline / restricted sandbox environments, treat network errors gracefully
+    } catch (err) {
+      // Catch definitive reachability failures (NXDOMAIN, ENOTFOUND, DNS failure)
+      const isDnsOrNetworkFailure = err.code === 'ENOTFOUND' ||
+        err.message?.includes('ENOTFOUND') ||
+        err.message?.includes('fetch failed') ||
+        err.message?.includes('getaddrinfo') ||
+        err.cause?.code === 'ENOTFOUND';
+
+      if (isDnsOrNetworkFailure) {
+        return {
+          healthy: false,
+          reason: `Target opportunity link failed reachability (${err.message || 'Domain non-existent or unreachable (NXDOMAIN)'}).`,
+          candidate: {
+            ...candidate,
+            link_status: 'failed',
+            activity_status: ACTIVITY_STATUS.STOPPED,
+            health_check_error: err.message || 'fetch failed',
+            last_checked_at: new Date().toISOString()
+          }
+        };
+      }
     }
   }
 
@@ -688,7 +707,7 @@ const activePublishLocks = new Map();
 export async function publishCandidateToGigs(candidate, userProfileOrReviewer = null, options = {}) {
   let effectiveReviewer = userProfileOrReviewer;
   let effectiveOptions = options;
-  if (userProfileOrReviewer && typeof userProfileOrReviewer === 'object' && !userProfileOrReviewer.role && (userProfileOrReviewer.skipRecheck !== undefined || userProfileOrReviewer.dryRun !== undefined)) {
+  if (userProfileOrReviewer && typeof userProfileOrReviewer === 'object' && !userProfileOrReviewer.role && (userProfileOrReviewer.skipRecheck !== undefined || userProfileOrReviewer.dryRun !== undefined || userProfileOrReviewer.client !== undefined || userProfileOrReviewer.dbClient !== undefined || userProfileOrReviewer.recheckAvailability !== undefined)) {
     effectiveOptions = userProfileOrReviewer;
     effectiveReviewer = null;
   }
@@ -723,10 +742,10 @@ export async function publishCandidateToGigs(candidate, userProfileOrReviewer = 
   }
 
   const publishExecution = (async () => {
-    const dbClient = effectiveOptions.client || supabase;
+    const dbClient = effectiveOptions.client || effectiveOptions.dbClient || supabase;
 
     // Real Pre-Publication Availability Recheck (VER-08 & PUB-02)
-    if (!effectiveOptions.skipRecheck) {
+    if (!effectiveOptions.skipRecheck && effectiveOptions.recheckAvailability !== false) {
       const recheck = await recheckOpportunityAvailability(candidate, effectiveOptions);
       if (!recheck.healthy) {
         const failureReason = `Pre-publication verification failed: ${recheck.reason} (PUB-02). Publication blocked.`;
@@ -795,21 +814,25 @@ export async function publishCandidateToGigs(candidate, userProfileOrReviewer = 
 
       try {
         const { data, error } = await dbClient.from('gigs').update(updatePayload).eq('id', existingMatch.id).select();
+        if (error) {
+          defaultNotificationService.notifyPublishFailure(candidate, error.message);
+          return { success: false, error: error.message };
+        }
         const published = (data && data.length > 0) ? data[0] : { ...existingMatch, ...updatePayload };
         defaultNotificationService.notifyPublished(published, candidate);
         return { success: true, publishedGig: published, updated: true, isDuplicate: true };
       } catch (err) {
-        return { success: true, publishedGig: existingMatch, updated: true, isDuplicate: true };
+        defaultNotificationService.notifyPublishFailure(candidate, err.message);
+        return { success: false, error: err.message };
       }
     }
 
-    // 6. Otherwise insert new gig
+    // 6. Otherwise insert new gig compatible with production public.gigs schema
+    const authenticTargetUrl = candidate.application_url || candidate.opportunity_url || candidate.original_url || originUrl;
     const gigToInsert = {
       external_gig_id: externalGigId,
       title: normalizeHtmlToText(candidate.title),
       track_id: candidate.track_id,
-      organization: candidate.organization || 'Independent Client',
-      company: candidate.organization || candidate.company || 'Independent Client',
       payment_amount: candidate.payment_amount || 'Unspecified',
       compensation_type: candidate.compensation_type || 'hourly',
       min_amount: parseFloat(candidate.min_amount) || 0,
@@ -817,12 +840,8 @@ export async function publishCandidateToGigs(candidate, userProfileOrReviewer = 
       currency: candidate.currency || 'USD',
       priority: candidate.review_priority >= 75 ? 'Featured' : 'Standard',
       is_featured: candidate.review_priority >= 75,
-      origin_url: originUrl,
-      opportunity_url: candidate.opportunity_url || originUrl,
-      application_url: candidate.application_url || '',
-      link_type: candidate.link_type || 'opportunity_page',
-      link_status: candidate.link_status || 'verified',
-      link_evidence: candidate.link_evidence || '',
+      is_local_business: Boolean(candidate.is_local_business),
+      origin_url: authenticTargetUrl,
       short_description: normalizeHtmlToText((candidate.short_description || candidate.description || `${candidate.title} at ${candidate.organization || 'Client'}`).slice(0, 200)),
       overview: normalizeHtmlToText(candidate.overview || candidate.description || ''),
       responsibilities: normalizeHtmlToText(candidate.responsibilities || ''),
@@ -834,6 +853,28 @@ export async function publishCandidateToGigs(candidate, userProfileOrReviewer = 
     try {
       const { data, error } = await dbClient.from('gigs').insert([gigToInsert]).select();
       if (error) {
+        // If error indicates an unknown column in schema cache, sanitize to known core schema and retry
+        if (error.message && error.message.includes('schema cache')) {
+          const coreGigsColumns = new Set([
+            'external_gig_id', 'title', 'track_id', 'payment_amount', 'compensation_type',
+            'min_amount', 'max_amount', 'currency', 'priority', 'is_featured',
+            'is_local_business', 'posted_at', 'origin_url', 'short_description',
+            'overview', 'responsibilities', 'deliverables', 'requirements', 'proof_spec', 'status'
+          ]);
+          const sanitized = {};
+          for (const [k, v] of Object.entries(gigToInsert)) {
+            if (coreGigsColumns.has(k)) sanitized[k] = v;
+          }
+          const retryRes = await dbClient.from('gigs').insert([sanitized]).select();
+          if (retryRes.error) {
+            defaultNotificationService.notifyPublishFailure(candidate, retryRes.error.message);
+            return { success: false, error: retryRes.error.message };
+          }
+          const published = retryRes.data && retryRes.data.length > 0 ? retryRes.data[0] : null;
+          defaultNotificationService.notifyPublished(published, candidate);
+          return { success: true, publishedGig: published, inserted: true };
+        }
+
         defaultNotificationService.notifyPublishFailure(candidate, error.message);
         return { success: false, error: error.message };
       }
