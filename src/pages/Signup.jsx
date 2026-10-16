@@ -253,8 +253,8 @@ export default function Signup() {
       {/* TOP BAR */}
       <header className="enrollment-top-bar">
         <Link to="/" className="enrollment-brand">
-          <span style={{ fontSize: '18px' }}>🦊</span>
-          <span style={{ color: '#e31b23' }}>The AI SCHOOL</span>
+          <img src="/fox.svg" alt="UpShift Logo" style={{ width: '20px', height: '20px', objectFit: 'contain' }} />
+          <span style={{ color: '#111827' }}>The AI SCHOOL</span>
           <span style={{ color: '#94a3b8' }}>/</span>
           <span>UpShift</span>
         </Link>
@@ -271,7 +271,7 @@ export default function Signup() {
 
         <div>
           <div className="enrollment-header-badge">
-            <span style={{ color: '#e31b23' }}>●</span> UpShift · ENROLLMENT
+            UpShift · ENROLLMENT
           </div>
           <h1 className="enrollment-page-title">AI UpShift Enrollment</h1>
           <p className="enrollment-subtitle">
@@ -292,7 +292,7 @@ export default function Signup() {
 
           {savedNotice && (
             <div className="alert-message alert-success">
-              ✓ Progress saved to your browser session!
+              Progress saved to your browser session!
             </div>
           )}
 
@@ -300,7 +300,12 @@ export default function Signup() {
 
           {success ? (
             <div className="alert-message alert-success" style={{ textAlign: 'center', padding: '24px' }}>
-              <div style={{ fontSize: '36px', marginBottom: '10px' }}>🎉</div>
+              <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center' }}>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                  <polyline points="22 4 12 14.01 9 11.01" />
+                </svg>
+              </div>
               <h3 style={{ fontSize: '20px', fontWeight: '800', marginBottom: '8px' }}>
                 Enrollment Completed Successfully!
               </h3>
@@ -324,7 +329,12 @@ export default function Signup() {
                     <div className="field-grid-2">
                       <div>
                         <div className="input-with-icon-wrap">
-                          <span className="input-icon-prefix">👤</span>
+                          <span className="input-icon-prefix">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                              <circle cx="12" cy="7" r="4" />
+                            </svg>
+                          </span>
                           <input
                             type="text"
                             name="firstName"
@@ -356,7 +366,12 @@ export default function Signup() {
                   <div className="form-group">
                     <label className="form-label">Phone(WhatsApp Number) <span style={{ color: '#e31b23' }}>*</span></label>
                     <div className="input-with-icon-wrap">
-                      <span className="input-icon-prefix">📱</span>
+                      <span className="input-icon-prefix">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+                          <line x1="12" y1="18" x2="12.01" y2="18" />
+                        </svg>
+                      </span>
                       <input
                         type="tel"
                         name="phone"
@@ -373,7 +388,12 @@ export default function Signup() {
                   <div className="form-group">
                     <label className="form-label">Email <span style={{ color: '#e31b23' }}>*</span></label>
                     <div className="input-with-icon-wrap">
-                      <span className="input-icon-prefix">✉️</span>
+                      <span className="input-icon-prefix">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                          <polyline points="22,6 12,13 2,6" />
+                        </svg>
+                      </span>
                       <input
                         type="email"
                         name="email"
@@ -541,7 +561,13 @@ export default function Signup() {
                       {dynamicLabels.institutionLabel} <span style={{ color: '#e31b23' }}>*</span>
                     </label>
                     <div className="input-with-icon-wrap">
-                      <span className="input-icon-prefix">🏛️</span>
+                      <span className="input-icon-prefix">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+                          <line x1="9" y1="22" x2="9" y2="2" />
+                          <line x1="15" y1="22" x2="15" y2="2" />
+                        </svg>
+                      </span>
                       <input
                         type="text"
                         name="institution"
@@ -559,7 +585,12 @@ export default function Signup() {
                       {dynamicLabels.degreeLabel} <span style={{ color: '#e31b23' }}>*</span>
                     </label>
                     <div className="input-with-icon-wrap">
-                      <span className="input-icon-prefix">🎓</span>
+                      <span className="input-icon-prefix">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
+                          <path d="M6 12v5c3 3 9 3 12 0v-5" />
+                        </svg>
+                      </span>
                       <input
                         type="text"
                         name="degree"
@@ -577,7 +608,12 @@ export default function Signup() {
                       {dynamicLabels.branchLabel} <span style={{ color: '#e31b23' }}>*</span>
                     </label>
                     <div className="input-with-icon-wrap">
-                      <span className="input-icon-prefix">📚</span>
+                      <span className="input-icon-prefix">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                        </svg>
+                      </span>
                       <input
                         type="text"
                         name="branch"
@@ -624,7 +660,7 @@ export default function Signup() {
 
                   <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '16px', marginBottom: '20px' }}>
                     <p style={{ fontSize: '13.5px', color: '#334155', fontWeight: '600' }}>
-                      📋 Enrollment Summary
+                      Enrollment Summary
                     </p>
                     <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>
                       Enrolling as <strong>{formData.firstName} {formData.lastName}</strong> ({formData.email}) · Status: <strong>{formData.currentStatus}</strong>
@@ -659,9 +695,9 @@ export default function Signup() {
                       type="submit"
                       disabled={loading}
                       className="btn-pill-next"
-                      style={{ background: '#e31b23' }}
+                      style={{ background: '#0f172a' }}
                     >
-                      {loading ? 'Submitting...' : 'Complete Enrollment ✓'}
+                      {loading ? 'Submitting...' : 'Complete Enrollment'}
                     </button>
                     <span className="page-step-indicator">3/3</span>
                   </div>

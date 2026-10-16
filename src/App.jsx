@@ -330,7 +330,12 @@ export function ProtectedRoute({ children, requiredRole }) {
     return (
       <div className="dashboard-screen learner-bg" style={{ justifyContent: 'center', textAlign: 'center' }}>
         <div className="dashboard-card learner-card" style={{ maxWidth: '520px', margin: 'auto' }}>
-          <div style={{ fontSize: '48px', marginBottom: '12px' }}>🚫</div>
+          <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center' }}>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#e31b23" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+            </svg>
+          </div>
           <h2 style={{ fontSize: '24px', fontWeight: '800', color: '#e31b23', marginBottom: '8px' }}>
             Access Denied
           </h2>

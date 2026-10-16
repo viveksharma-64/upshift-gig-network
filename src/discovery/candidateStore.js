@@ -15,9 +15,10 @@ import { analyzeUrlStructure } from './urlClassifier.js';
 import candidatesData from '../../data/candidates.json' with { type: 'json' };
 
 const LOCAL_STORAGE_KEY = 'upshift_discovery_candidates';
+const LOCAL_STORAGE_AUTHORITATIVE_KEY = 'upshift_candidates_is_authoritative';
 
 /**
- * Loads candidates from localStorage (if edited), local JSON, or Supabase
+ * Loads candidates from localStorage (if authoritative or local mode), or Supabase
  * @returns {Array<object>}
  */
 export function loadLocalCandidates() {
@@ -25,38 +26,48 @@ export function loadLocalCandidates() {
     return Array.isArray(candidatesData) ? candidatesData.map(createCandidate) : [];
   }
 
+  const hasRemoteConfig = Boolean(typeof import.meta !== 'undefined' ? import.meta.env?.VITE_SUPABASE_URL : false);
+
   try {
     const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const isAuthoritative = localStorage.getItem(LOCAL_STORAGE_AUTHORITATIVE_KEY) === 'true';
     if (stored) {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map(createCandidate);
+        // Return stored candidates if they were verified authoritative, or if we are not in remote-configured mode
+        if (isAuthoritative || !hasRemoteConfig) {
+          return parsed.map(createCandidate);
+        }
       }
     }
   } catch {
     // fallback to initial data
   }
 
-  const initial = Array.isArray(candidatesData) && candidatesData.length > 0
-    ? candidatesData.map(createCandidate)
-    : [];
-
-  try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(initial));
-  } catch {
-    // storage quota fallback
+  // Only fallback to static mock fixture data when remote Supabase backend is not configured
+  if (!hasRemoteConfig && Array.isArray(candidatesData) && candidatesData.length > 0) {
+    const initial = candidatesData.map(createCandidate);
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(initial));
+    } catch {
+      // storage quota fallback
+    }
+    return initial;
   }
 
-  return initial;
+  return [];
 }
 
 /**
  * Persists candidates state to browser storage
  */
-export function saveLocalCandidates(list) {
+export function saveLocalCandidates(list, isAuthoritative = false) {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
+    if (isAuthoritative) {
+      localStorage.setItem(LOCAL_STORAGE_AUTHORITATIVE_KEY, 'true');
+    }
   } catch (err) {
     console.warn('Failed to save candidates to localStorage:', err);
   }
@@ -68,15 +79,18 @@ export function saveLocalCandidates(list) {
  * - Uses remote values for authoritative crawled fields (title, description, rates, etc.).
  * - Strictly preserves local review status (approved, rejected, etc.) and review metadata
  *   unless the remote record contains a valid newer review decision.
+ * - If options.authoritativeRemote is true, remote candidate listings define the authoritative queue;
+ *   unmatched local sample/fixture records are excluded.
  * - Preserves all existing local candidates when the remote response is partial.
  * - Appends newly discovered remote candidates without duplication.
  * - Never truncates, empties, or reduces the candidate queue.
  *
  * @param {Array<object>} existingLocal
  * @param {Array<object>} incomingRemote
+ * @param {object} [options]
  * @returns {Array<object>} Reconciled candidates list
  */
-export function reconcileCandidates(existingLocal = [], incomingRemote = []) {
+export function reconcileCandidates(existingLocal = [], incomingRemote = [], options = {}) {
   const localList = Array.isArray(existingLocal) ? existingLocal : [];
   if (!Array.isArray(incomingRemote) || incomingRemote.length === 0) {
     return localList;
@@ -154,6 +168,9 @@ export function reconcileCandidates(existingLocal = [], incomingRemote = []) {
 
       const normalizedMerged = createCandidate(merged);
       mergedMap.set(loc.id, normalizedMerged);
+      if (rem.id && rem.id !== loc.id) {
+        mergedMap.set(rem.id, normalizedMerged);
+      }
     } else {
       // Brand new remote candidate
       if (rem.id) {
@@ -163,10 +180,26 @@ export function reconcileCandidates(existingLocal = [], incomingRemote = []) {
     }
   }
 
-  // Preserve all existing local candidates, replacing matched ones with their merged version
   const result = [];
   const emittedIds = new Set();
 
+  // If authoritativeRemote is set, incomingRemote is the complete authoritative set from production DB.
+  // We emit every record from incomingRemote (with merged local review metadata where matched),
+  // but do NOT append obsolete local sample/fixture records that never existed in the database.
+  if (options && options.authoritativeRemote) {
+    for (const rawRem of incomingRemote) {
+      if (!rawRem || !rawRem.id) continue;
+      const targetId = rawRem.id;
+      const item = mergedMap.get(targetId) || createCandidate(rawRem);
+      if (!emittedIds.has(item.id)) {
+        result.push(item);
+        emittedIds.add(item.id);
+      }
+    }
+    return result;
+  }
+
+  // Preserve all existing local candidates, replacing matched ones with their merged version
   for (const loc of localList) {
     if (!loc || !loc.id) continue;
     if (mergedMap.has(loc.id)) {
@@ -253,8 +286,8 @@ export async function fetchCandidateQueue(options = {}) {
         if (!error && Array.isArray(data) && data.length > 0) {
           const mapped = data.map(createCandidate);
           const currentLocal = loadLocalCandidates();
-          const reconciled = reconcileCandidates(currentLocal, mapped);
-          saveLocalCandidates(reconciled);
+          const reconciled = reconcileCandidates(currentLocal, mapped, { authoritativeRemote: true });
+          saveLocalCandidates(reconciled, true);
           reconciled.syncSuccess = true;
           reconciled.syncStatus = 'success';
           reconciled.syncSource = 'supabase';
@@ -313,7 +346,7 @@ export async function fetchCandidateQueue(options = {}) {
             const mapped = candidateList.map(createCandidate);
             const currentLocal = loadLocalCandidates();
             const reconciled = reconcileCandidates(currentLocal, mapped);
-            saveLocalCandidates(reconciled);
+            saveLocalCandidates(reconciled, true);
             reconciled.syncSuccess = true;
             reconciled.syncStatus = 'success';
             reconciled.syncSource = 'api';

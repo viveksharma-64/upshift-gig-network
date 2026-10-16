@@ -94,13 +94,24 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
   const [actionWarningMsg, setActionWarningMsg] = useState('');
   const [actionErrorMsg, setActionErrorMsg] = useState('');
 
-  // Fetch candidates from persistent server API on mount
+  // Fetch candidates from authoritative database on mount
   useEffect(() => {
     let active = true;
     fetchCandidateQueue().then(queue => {
-      if (active && Array.isArray(queue) && queue.length > 0 && queue.syncSuccess && !queue.isFallback) {
+      if (!active) return;
+      if (Array.isArray(queue) && queue.syncSuccess && !queue.isFallback) {
         setCandidates(queue);
+      } else if (queue && (queue.syncStatus === 'warning' || queue.syncStatus === 'error' || queue.isFallback)) {
+        if (queue.syncMessage) {
+          if (queue.syncStatus === 'error') {
+            setActionErrorMsg(queue.syncMessage);
+          } else {
+            setActionWarningMsg(queue.syncMessage);
+          }
+        }
       }
+    }).catch(err => {
+      if (active) setActionErrorMsg(`Error loading queue: ${err.message}`);
     });
     fetchOperationalStatus().then(status => {
       if (active && status) {
@@ -157,7 +168,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
             const pendingCount = summary.total_pending ?? summary.pending_count ?? 0;
 
             setActionSuccessMsg(
-              `⚡ Discovery job ${job.id} succeeded: ${savedCount} new candidates saved (${fetchedCount} fetched, ${relevantCount} relevant). Total Pending: ${pendingCount}.`
+              `Discovery job ${job.id} succeeded: ${savedCount} new candidates saved (${fetchedCount} fetched, ${relevantCount} relevant). Total Pending: ${pendingCount}.`
             );
 
             fetchOperationalStatus().then(st => {
@@ -233,33 +244,30 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
       const fresh = await fetchCandidateQueue();
       const sourceLabel = fresh?.syncSource === 'supabase'
         ? 'Supabase (public.gig_candidates)'
-        : 'Local development cache (data/candidates.json)';
+        : fresh?.syncSource === 'api'
+          ? 'API (/api/candidates)'
+          : 'Local cache';
 
       if (fresh && fresh.syncSuccess && !fresh.isFallback && fresh.length > 0) {
         setCandidates(fresh);
         setActionSuccessMsg(`Synced with candidate store via ${sourceLabel} (${fresh.length} listings loaded)`);
       } else if (fresh && (fresh.syncStatus === 'warning' || fresh.isFallback)) {
-        if (candidates.length === 0 && fresh.length > 0) {
-          setCandidates(fresh);
-        }
         setActionWarningMsg(
           fresh.syncMessage ||
-          `Remote store returned no new records (${sourceLabel}). Preserved ${candidates.length || fresh.length} existing candidate listings.`
+          `Remote store returned no new records (${sourceLabel}). Preserved ${candidates.length} existing candidate listings.`
         );
       } else if (fresh && fresh.syncStatus === 'error') {
-        if (candidates.length === 0 && fresh.length > 0) {
-          setCandidates(fresh);
-        }
         setActionErrorMsg(
           fresh.syncMessage ||
-          `Remote store sync error (${sourceLabel}). Preserved ${candidates.length || fresh.length} existing candidate listings.`
+          `Remote store sync error (${sourceLabel}). Preserved ${candidates.length} existing candidate listings.`
         );
-      } else if (Array.isArray(fresh) && fresh.length > 0) {
+      } else if (Array.isArray(fresh) && fresh.syncSuccess && !fresh.isFallback && fresh.length > 0) {
         setCandidates(fresh);
         setActionSuccessMsg(`Synced with candidate store via ${sourceLabel} (${fresh.length} listings loaded)`);
       } else {
         // Zero or non-array returned: strictly preserve existing candidates and alert user
         setActionWarningMsg(
+          fresh?.syncMessage ||
           `Remote store returned no usable records (${sourceLabel}). Preserved ${candidates.length} existing candidate listings.`
         );
       }
@@ -296,7 +304,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
 
         if (res.isAsync) {
           setActionSuccessMsg(
-            `⚡ Discovery job accepted: ${res.jobId}. Execution queued on private runner outside HTTP lifecycle.`
+            `Discovery job accepted: ${res.jobId}. Execution queued on private runner outside HTTP lifecycle.`
           );
         } else if (Array.isArray(res.candidates)) {
           setCandidates(res.candidates);
@@ -304,11 +312,11 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
           const newlySaved = counts.newly_saved !== undefined ? counts.newly_saved : Math.max(0, res.candidates.length - candidates.length);
           if (newlySaved > 0) {
             setActionSuccessMsg(
-              `⚡ Discovery complete (Job: ${res.jobId || 'local'}): Saved ${newlySaved} new gigs to queue (${counts.fetched || 0} fetched, ${counts.relevant || 0} relevant, ${counts.rejected || 0} rejected, ${counts.duplicate || 0} duplicate, ${counts.uncertain || 0} uncertain). Total Pending: ${counts.total_pending || 0}.`
+              `Discovery complete (Job: ${res.jobId || 'local'}): Saved ${newlySaved} new gigs to queue (${counts.fetched || 0} fetched, ${counts.relevant || 0} relevant, ${counts.rejected || 0} rejected, ${counts.duplicate || 0} duplicate, ${counts.uncertain || 0} uncertain). Total Pending: ${counts.total_pending || 0}.`
             );
           } else {
             setActionSuccessMsg(
-              `⚡ Discovery complete (Job: ${res.jobId || 'local'}): All ${counts.fetched || 0} fetched listings were already present in store. Preserved ${res.candidates.length} candidate listings.`
+              `Discovery complete (Job: ${res.jobId || 'local'}): All ${counts.fetched || 0} fetched listings were already present in store. Preserved ${res.candidates.length} candidate listings.`
             );
           }
         }
@@ -317,11 +325,11 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
         // Failed or unauthorized - strictly preserve existing candidates
         if (res.statusCode === 401) {
           setActionWarningMsg(
-            `⚠️ Administrator Authentication Required: ${res.error || 'Please sign in with administrator credentials.'} Preserved ${candidates.length} existing candidate listings.`
+            `Administrator Authentication Required: ${res.error || 'Please sign in with administrator credentials.'} Preserved ${candidates.length} existing candidate listings.`
           );
         } else if (res.statusCode === 403) {
           setActionErrorMsg(
-            `🚫 Access Denied: ${res.error || 'Only verified administrators can run discovery.'} Preserved ${candidates.length} existing candidate listings.`
+            `Access Denied: ${res.error || 'Only verified administrators can run discovery.'} Preserved ${candidates.length} existing candidate listings.`
           );
         } else {
           setActionErrorMsg(
@@ -377,8 +385,8 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
       };
       const res = await publishCandidateToGigs(approvedCandidate, { role: 'admin' });
       if (!res.success) {
-        setActionErrorMsg(`❌ Publishing failed: ${res.error}`);
-        alert(`❌ Publishing failed: ${res.error}`);
+        setActionErrorMsg(`Publishing failed: ${res.error}`);
+        alert(`Publishing failed: ${res.error}`);
         return;
       }
 
@@ -387,12 +395,12 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
         published_gig_id: res.publishedGig?.id || 'live-gig',
       };
       updateCandidateInList(updated);
-      displaySuccessMsg(`✅ Approved! Successfully published to Published Gigs: "${cand.title}"`);
+      displaySuccessMsg(`Approved! Successfully published to Published Gigs: "${cand.title}"`);
       if (onGigPublished) onGigPublished(res.publishedGig);
       if (onRefreshGigs) onRefreshGigs();
       fetchOperationalStatus().then(st => st && setOperationalStatus(st)).catch(() => {});
     } catch (err) {
-      alert(`❌ Error publishing candidate: ${err.message}`);
+      alert(`Error publishing candidate: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -493,7 +501,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
       };
       updateCandidateInList(updated);
       if (res.healthy) {
-        displaySuccessMsg(`✓ Opportunity destination verified reachable: ${cand.opportunity_url || cand.original_url}`);
+        displaySuccessMsg(`Opportunity destination verified reachable: ${cand.opportunity_url || cand.original_url}`);
       } else {
         setActionErrorMsg(`Link reachability check failed: ${res.reason}`);
       }
@@ -603,7 +611,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h2 style={{ fontSize: '24px', fontWeight: '800', color: '#111827', margin: 0 }}>
-            ⚡ AI Gig Discovery Queue
+            AI Gig Discovery Queue
           </h2>
           <p style={{ fontSize: '13.5px', color: '#6b7280', margin: '4px 0 0' }}>
             Automated crawler, RSS & API candidate verification queue. Review and approve before publication.
@@ -611,29 +619,29 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
         </div>
 
         {/* Status Counters */}
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <span style={{ background: '#fef3c7', color: '#b45309', padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '700' }}>
-            ⏳ Pending: {counts.pending}
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <span style={{ background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', padding: '5px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}>
+            Pending: {counts.pending}
           </span>
-          <span style={{ background: '#dcfce7', color: '#15803d', padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '700' }}>
-            ✓ Approved: {counts.approved}
+          <span style={{ background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', padding: '5px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}>
+            Approved: {counts.approved}
           </span>
           {counts.paused > 0 && (
-            <span style={{ background: '#fef9c3', color: '#a16207', padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '700' }}>
-              ⏸ Paused: {counts.paused}
+            <span style={{ background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', padding: '5px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}>
+              Paused: {counts.paused}
             </span>
           )}
           {counts.stopped > 0 && (
-            <span style={{ background: '#fee2e2', color: '#991b1b', padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '700' }}>
-              ⏹ Stopped: {counts.stopped}
+            <span style={{ background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', padding: '5px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}>
+              Stopped: {counts.stopped}
             </span>
           )}
           {counts.recheck > 0 && (
-            <span style={{ background: '#fee2e2', color: '#b91c1c', padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '700' }}>
-              ⚠️ Needs Recheck: {counts.recheck}
+            <span style={{ background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', padding: '5px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}>
+              Needs Recheck: {counts.recheck}
             </span>
           )}
-          <span style={{ background: '#f3f4f6', color: '#4b5563', padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '700' }}>
+          <span style={{ background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', padding: '5px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}>
             Total Discovered: {counts.total}
           </span>
           <button
@@ -642,21 +650,20 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
             disabled={isDiscovering || isSyncing}
             title="Run live discovery against permitted public APIs and RSS feeds"
             style={{
-              background: isDiscovering ? '#fed7aa' : '#ea580c',
-              border: '1px solid #c2410c',
-              borderRadius: '20px',
+              background: isDiscovering ? '#334155' : '#0f172a',
+              border: '1px solid #0f172a',
+              borderRadius: '6px',
               padding: '6px 14px',
               fontSize: '12px',
-              fontWeight: '700',
+              fontWeight: '600',
               color: '#ffffff',
               cursor: (isDiscovering || isSyncing) ? 'wait' : 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+              gap: '6px'
             }}
           >
-            ⚡ {isDiscovering ? 'Discovering...' : 'Run Discovery'}
+            {isDiscovering ? 'Discovering...' : 'Run Discovery'}
           </button>
           <button
             id="sync-store-btn"
@@ -665,20 +672,19 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
             title="Reload latest discoveries from server candidate repository"
             style={{
               background: '#ffffff',
-              border: '1px solid #cbd5e1',
-              borderRadius: '20px',
+              border: '1px solid #d1d5db',
+              borderRadius: '6px',
               padding: '6px 14px',
               fontSize: '12px',
-              fontWeight: '700',
-              color: '#2563eb',
+              fontWeight: '600',
+              color: '#111827',
               cursor: (isSyncing || isDiscovering) ? 'wait' : 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+              gap: '6px'
             }}
           >
-            <span>🔄</span> {isSyncing ? 'Syncing...' : 'Sync Store'}
+            {isSyncing ? 'Syncing...' : 'Sync Store'}
           </button>
           <button
             id="export-approved-btn"
@@ -686,27 +692,26 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
             title="Export approved candidates to 19-column CSV"
             style={{
               background: '#ffffff',
-              border: '1px solid #cbd5e1',
-              borderRadius: '20px',
+              border: '1px solid #d1d5db',
+              borderRadius: '6px',
               padding: '6px 14px',
               fontSize: '12px',
-              fontWeight: '700',
-              color: '#475569',
+              fontWeight: '600',
+              color: '#111827',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+              gap: '6px'
             }}
           >
-            <span>📥</span> Export CSV
+            Export CSV
           </button>
         </div>
       </div>
 
       {isDiscovering && (
         <div role="status" style={{ background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', fontSize: '13.5px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '16px' }}>⏳</span>
+          <span style={{ fontSize: '11px', color: '#ea580c', fontWeight: '800' }}>●</span>
           <span><strong>Running live discovery:</strong> Crawling permitted endpoints (Arbeitnow, Remotive, Jobicy, Working Nomads, RemoteOK, WWR, NoDesk, Dribbble)... Classifying relevance across M1–M6 tracks and deduplicating candidates.</span>
         </div>
       )}
@@ -714,27 +719,27 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
       {actionSuccessMsg && (
         <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#065f46', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', fontSize: '13.5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>{actionSuccessMsg}</span>
-          <button onClick={() => setActionSuccessMsg('')} aria-label="Dismiss message" style={{ background: 'none', border: 'none', color: '#065f46', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>✕</button>
+          <button onClick={() => setActionSuccessMsg('')} aria-label="Dismiss message" style={{ background: 'none', border: 'none', color: '#065f46', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
         </div>
       )}
 
       {actionWarningMsg && (
         <div role="alert" style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', fontSize: '13.5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '16px' }}>⚠️</span>
-            <span>{actionWarningMsg}</span>
-          </div>
-          <button onClick={() => setActionWarningMsg('')} aria-label="Dismiss warning" style={{ background: 'none', border: 'none', color: '#92400e', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>✕</button>
+          <span>{actionWarningMsg}</span>
+          <button onClick={() => setActionWarningMsg('')} aria-label="Dismiss warning" style={{ background: 'none', border: 'none', color: '#92400e', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
         </div>
       )}
 
       {actionErrorMsg && (
         <div role="alert" style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', fontSize: '13.5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '16px' }}>❌</span>
-            <span>{actionErrorMsg}</span>
-          </div>
-          <button onClick={() => setActionErrorMsg('')} aria-label="Dismiss error" style={{ background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>✕</button>
+          <span>{actionErrorMsg}</span>
+          <button onClick={() => setActionErrorMsg('')} aria-label="Dismiss error" style={{ background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
         </div>
       )}
 
@@ -742,11 +747,10 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
       <div className="operational-status-card" style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 20px', marginBottom: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid #f1f5f9', flexWrap: 'wrap', gap: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '15px' }}>📡</span>
-            <span style={{ fontSize: '13px', fontWeight: '800', color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            <span style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               Automation & Health Observability
             </span>
-            <span style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', padding: '1px 8px', borderRadius: '4px', fontSize: '10.5px', fontWeight: '700' }}>
+            <span style={{ background: '#f1f5f9', color: '#334155', border: '1px solid #e2e8f0', padding: '1px 8px', borderRadius: '4px', fontSize: '10.5px', fontWeight: '600' }}>
               Production Schedule Active
             </span>
           </div>
@@ -755,11 +759,12 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
               <span style={{ color: '#64748b' }}>Active Job:</span>
               <code style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', color: '#0f172a' }}>{activeJob.id}</code>
               <span style={{
-                background: activeJob.status === 'succeeded' ? '#dcfce7' : activeJob.status === 'failed' ? '#fee2e2' : '#fef3c7',
-                color: activeJob.status === 'succeeded' ? '#15803d' : activeJob.status === 'failed' ? '#991b1b' : '#b45309',
+                background: '#f1f5f9',
+                color: '#334155',
+                border: '1px solid #e2e8f0',
                 padding: '2px 8px',
-                borderRadius: '10px',
-                fontWeight: '700'
+                borderRadius: '4px',
+                fontWeight: '600'
               }}>
                 {activeJob.status.toUpperCase()}
               </span>
@@ -768,11 +773,11 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
         </div>
 
         <div className="operational-status-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', marginBottom: '20px' }}>
-          {/* Schedule 1: Opportunity Health Monitor */}
-          <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+          {/* Schedule 1: 🩺 Opportunity Health Monitor */}
+          <div style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <span style={{ fontSize: '12px', fontWeight: '700', color: '#334155' }}>🩺 Opportunity Health Monitor</span>
-              <span style={{ fontSize: '11px', background: '#e0f2fe', color: '#0369a1', padding: '1px 6px', borderRadius: '4px', fontWeight: '600' }}>02:00 UTC</span>
+              <span style={{ fontSize: '12px', fontWeight: '700', color: '#334155' }}>Opportunity Health Monitor</span>
+              <span style={{ fontSize: '11px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', padding: '1px 6px', borderRadius: '4px', fontWeight: '600' }}>02:00 UTC</span>
             </div>
             <div style={{ fontSize: '11.5px', color: '#64748b' }}>
               <span>Runner: <code>src/server/monitor.js</code></span>
@@ -784,11 +789,11 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
             </div>
           </div>
 
-          {/* Schedule 2: Automatic Gig Discovery */}
-          <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+          {/* Schedule 2: ⚡ Automatic Gig Discovery */}
+          <div style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <span style={{ fontSize: '12px', fontWeight: '700', color: '#334155' }}>⚡ Automatic Gig Discovery</span>
-              <span style={{ fontSize: '11px', background: '#ede9fe', color: '#6d28d9', padding: '1px 6px', borderRadius: '4px', fontWeight: '600' }}>Every 12h</span>
+              <span style={{ fontSize: '12px', fontWeight: '700', color: '#334155' }}>Automatic Gig Discovery</span>
+              <span style={{ fontSize: '11px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', padding: '1px 6px', borderRadius: '4px', fontWeight: '600' }}>Every 12h</span>
             </div>
             <div style={{ fontSize: '11.5px', color: '#64748b' }}>
               <span>Runner: <code>src/server/worker.js</code></span>
@@ -852,10 +857,10 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
           className="discovery-filter-select"
         >
           <option value="all">All Activity States</option>
-          <option value="Active">🟢 Active Only</option>
-          <option value="Paused">⏸ Paused Only</option>
-          <option value="Stopped">🔴 Stopped Only</option>
-          <option value="Needs Review">🟡 Needs Review Only</option>
+          <option value="Active">Active Only</option>
+          <option value="Paused">Paused Only</option>
+          <option value="Stopped">Stopped Only</option>
+          <option value="Needs Review">Needs Review Only</option>
         </select>
 
         {/* Sort By */}
@@ -904,17 +909,16 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
               onClick={() => setModuleFilter(mod.id)}
               className={`discovery-module-pill ${isActive ? 'active' : ''}`}
               style={{
-                background: isActive ? '#2563eb' : '#f8fafc',
-                color: isActive ? '#ffffff' : '#334155',
-                border: isActive ? '1px solid #2563eb' : '1px solid #e2e8f0',
-                borderRadius: '9999px',
-                padding: '7px 18px',
+                background: isActive ? '#0f172a' : '#ffffff',
+                color: isActive ? '#ffffff' : '#374151',
+                border: isActive ? '1px solid #0f172a' : '1px solid #e5e7eb',
+                borderRadius: '6px',
+                padding: '6px 14px',
                 fontSize: '12.5px',
-                fontWeight: isActive ? '700' : '600',
+                fontWeight: isActive ? '700' : '500',
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
-                transition: 'all 0.15s ease',
-                boxShadow: isActive ? '0 1px 3px rgba(37, 99, 235, 0.25)' : 'none'
+                transition: 'all 0.15s ease'
               }}
             >
               {mod.label}
@@ -926,7 +930,6 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
       {/* Candidate Cards Grid */}
       {filteredCandidates.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', color: '#6b7280' }}>
-          <p style={{ fontSize: '32px', margin: '0 0 10px' }}>🔍</p>
           <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#374151', margin: '0 0 6px' }}>No candidates found</h3>
           <p style={{ fontSize: '13px', margin: 0 }}>Try clearing filters or run an ingestion cycle using the worker CLI (`npm run worker:discover`).</p>
         </div>
@@ -952,51 +955,51 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                 style={{
                   background: '#fff',
                   border: '1px solid #e5e7eb',
-                  borderRadius: '14px',
-                  padding: '20px',
-                  boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                  borderRadius: '8px',
+                  padding: '18px 20px',
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'space-between',
-                  transition: 'transform 0.15s ease, box-shadow 0.15s ease'
+                  transition: 'border-color 0.15s ease'
                 }}
               >
                 <div>
                   {/* Header badges */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', gap: '8px', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <span style={{ background: '#fef2f2', color: '#e31b23', fontWeight: '800', fontSize: '11px', padding: '2px 8px', borderRadius: '6px' }}>
+                      <span style={{ background: '#f1f5f9', color: '#111827', border: '1px solid #e2e8f0', fontWeight: '700', fontSize: '11px', padding: '2px 7px', borderRadius: '4px' }}>
                         {c.track_id}
                       </span>
-                      <span style={{ background: activityBg, color: activityColor, fontWeight: '700', fontSize: '11px', padding: '2px 8px', borderRadius: '6px' }}>
-                        ● {normActivity.toUpperCase()} ({c.activity_confidence}%)
+                      <span style={{ background: '#f1f5f9', color: '#374151', border: '1px solid #e2e8f0', fontWeight: '600', fontSize: '11px', padding: '2px 7px', borderRadius: '4px' }}>
+                        {normActivity.toUpperCase()} ({c.activity_confidence}%)
                       </span>
                       {c.is_conventional_job ? (
-                        <span style={{ background: '#fee2e2', color: '#b91c1c', fontWeight: '700', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
-                          🚫 Corporate Job
+                        <span style={{ background: '#f1f5f9', color: '#4b5563', border: '1px solid #e2e8f0', fontWeight: '600', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
+                          Corporate Job
                         </span>
                       ) : c.is_gig ? (
-                        <span style={{ background: '#f0fdf4', color: '#15803d', fontWeight: '700', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
-                          ✅ Confirmed Gig ({c.gig_type || 'freelance'})
+                        <span style={{ background: '#f1f5f9', color: '#111827', border: '1px solid #e2e8f0', fontWeight: '600', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
+                          Confirmed Gig ({c.gig_type || 'freelance'})
                         </span>
                       ) : (
-                        <span style={{ background: '#fef3c7', color: '#92400e', fontWeight: '700', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
-                          ⚠️ Unconfirmed Work-Type
+                        <span style={{ background: '#f1f5f9', color: '#4b5563', border: '1px solid #e2e8f0', fontWeight: '600', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
+                          Unconfirmed Work-Type
                         </span>
                       )}
                       <span style={{
-                        background: c.link_type === 'direct_apply' ? '#dcfce7' : c.link_type === 'platform_login_required' ? '#fef3c7' : '#f1f5f9',
-                        color: c.link_type === 'direct_apply' ? '#15803d' : c.link_type === 'platform_login_required' ? '#b45309' : '#475569',
-                        fontWeight: '700',
+                        background: '#f1f5f9',
+                        color: '#374151',
+                        border: '1px solid #e2e8f0',
+                        fontWeight: '600',
                         fontSize: '10px',
                         padding: '2px 6px',
                         borderRadius: '4px'
                       }}>
-                        {c.link_type === 'direct_apply' ? '🎯 Direct Apply' : c.link_type === 'platform_login_required' ? '🔐 Login Req.' : '📄 Opp. Page'}
+                        {c.link_type === 'direct_apply' ? 'Direct Apply' : c.link_type === 'platform_login_required' ? 'Login Req.' : 'Opp. Page'}
                       </span>
                       {c.referral_required && (
-                        <span style={{ background: '#f0fdf4', color: '#16a34a', fontWeight: '700', fontSize: '10px', padding: '2px 6px', borderRadius: '4px', border: '1px solid #bbf7d0' }}>
-                          🏷️ Referral Gate
+                        <span style={{ background: '#f1f5f9', color: '#374151', fontWeight: '600', fontSize: '10px', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                          Referral Gate
                         </span>
                       )}
                     </div>
@@ -1011,7 +1014,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                     {normalizeHtmlToText(c.title)}
                   </h3>
                   <p style={{ fontSize: '12.5px', color: '#4b5563', margin: '0 0 12px', fontWeight: '500' }}>
-                    🏢 {normalizeHtmlToText(c.organization)} · 📍 {normalizeHtmlToText(c.location)}
+                    {normalizeHtmlToText(c.organization)} · {normalizeHtmlToText(c.location)}
                   </p>
 
                   {/* Excerpt */}
@@ -1020,22 +1023,16 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                   </p>
 
                   {/* Compensation & Source */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#374151', padding: '8px 12px', background: '#f9fafb', borderRadius: '8px', marginBottom: '8px' }}>
-                    <span>💰 <strong>{c.payment_amount || 'Unspecified'}</strong></span>
-                    <span>📡 {c.source_name}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#374151', padding: '8px 12px', background: '#f9fafb', borderRadius: '6px', border: '1px solid #e5e7eb', marginBottom: '8px' }}>
+                    <span><strong>{c.payment_amount || 'Unspecified'}</strong></span>
+                    <span>{c.source_name}</span>
                   </div>
 
                   {/* Opportunity Link Status */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: '#64748b', padding: '6px 10px', background: '#f8fafc', borderRadius: '6px', marginBottom: '8px', border: '1px solid #f1f5f9' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: '#64748b', padding: '6px 10px', background: '#f9fafb', borderRadius: '6px', marginBottom: '8px', border: '1px solid #e5e7eb' }}>
                     <span>
                       Opportunity Link:{' '}
-                      <strong style={{
-                        color: (c.link_status === 'closed' || c.link_status === 'failed' || normActivity === 'STOPPED' || Boolean(c.health_check_error))
-                          ? '#dc2626'
-                          : (c.link_status === 'uncertain' || c.link_status === 'unverified')
-                          ? '#d97706'
-                          : '#16a34a'
-                      }}>
+                      <strong style={{ color: '#111827' }}>
                         {(c.link_status === 'closed' || c.link_status === 'failed' || normActivity === 'STOPPED' || Boolean(c.health_check_error))
                           ? 'Closed / Broken'
                           : (c.link_status === 'uncertain' || c.link_status === 'unverified')
@@ -1055,7 +1052,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                         }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {(c.link_status === 'closed' || c.link_status === 'failed' || normActivity === 'STOPPED') ? 'Inspect Broken Link ↗' : 'Open Opp ↗'}
+                        {(c.link_status === 'closed' || c.link_status === 'failed' || normActivity === 'STOPPED') ? 'Inspect Broken Link' : 'Open Opp'}
                       </a>
                     )}
                   </div>
@@ -1075,7 +1072,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                   {/* Duplicate warning flag */}
                   {c.is_duplicate && (
                     <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: '11.5px', padding: '6px 10px', borderRadius: '6px', marginBottom: '12px' }}>
-                      ⚠️ Duplicate listing detected
+                      Duplicate listing detected
                     </div>
                   )}
                 </div>
@@ -1094,7 +1091,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                     }}
                     className="btn-inspect-edit"
                   >
-                    🔍 Inspect & Edit
+                    Inspect & Edit
                   </button>
 
                   <div className="candidate-card-state-btns">
@@ -1103,29 +1100,29 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                         <button
                           onClick={() => handlePause(c)}
                           title="Pause candidate temporarily (REV-06)"
-                          style={{ background: '#fef3c7', color: '#b45309', border: 'none', padding: '7px 10px', borderRadius: '6px', fontSize: '11.5px', fontWeight: '700', cursor: 'pointer' }}
+                          style={{ background: '#ffffff', color: '#374151', border: '1px solid #d1d5db', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
                         >
-                          ⏸ Pause
+                          Pause
                         </button>
                         <button
                           onClick={() => handleStop(c)}
                           title="Stop candidate permanently (REV-06)"
-                          style={{ background: '#fee2e2', color: '#991b1b', border: 'none', padding: '7px 10px', borderRadius: '6px', fontSize: '11.5px', fontWeight: '700', cursor: 'pointer' }}
+                          style={{ background: '#ffffff', color: '#374151', border: '1px solid #d1d5db', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
                         >
-                          ⏹ Stop
+                          Stop
                         </button>
                         <button
                           onClick={() => handleReject(c)}
-                          style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '7px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                          style={{ background: '#ffffff', color: '#374151', border: '1px solid #d1d5db', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
                         >
-                          ✕ Reject
+                          Reject
                         </button>
                         <button
                           onClick={() => handleApprove(c)}
                           disabled={actionLoading}
-                          style={{ background: '#16a34a', color: '#fff', border: 'none', padding: '7px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                          style={{ background: '#0f172a', color: '#ffffff', border: '1px solid #0f172a', padding: '6px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
                         >
-                          ✓ Approve
+                          Approve
                         </button>
                       </>
                     )}
@@ -1133,34 +1130,34 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                       <>
                         <button
                           onClick={() => handleResume(c)}
-                          style={{ background: '#dbeafe', color: '#1d4ed8', border: 'none', padding: '7px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                          style={{ background: '#0f172a', color: '#ffffff', border: '1px solid #0f172a', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
                         >
-                          ▶ Resume
+                          Resume
                         </button>
                         <button
                           onClick={() => handleStop(c)}
-                          style={{ background: '#fee2e2', color: '#991b1b', border: 'none', padding: '7px 10px', borderRadius: '6px', fontSize: '11.5px', fontWeight: '700', cursor: 'pointer' }}
+                          style={{ background: '#ffffff', color: '#374151', border: '1px solid #d1d5db', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
                         >
-                          ⏹ Stop
+                          Stop
                         </button>
                       </>
                     )}
                     {isStopped && (
                       <button
                         onClick={() => handleResume(c)}
-                        style={{ background: '#f3f4f6', color: '#374151', border: 'none', padding: '7px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                        style={{ background: '#ffffff', color: '#374151', border: '1px solid #d1d5db', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
                       >
-                        🔄 Reopen
+                        Reopen
                       </button>
                     )}
                     {c.status === CANDIDATE_STATUS.APPROVED && (
-                      <span style={{ color: '#16a34a', fontSize: '12px', fontWeight: '700', padding: '6px 0' }}>
-                        ✓ Published
+                      <span style={{ color: '#475569', fontSize: '12px', fontWeight: '600', padding: '6px 0' }}>
+                        Published
                       </span>
                     )}
                     {c.status === CANDIDATE_STATUS.REJECTED && (
-                      <span style={{ color: '#dc2626', fontSize: '12px', fontWeight: '700', padding: '6px 0' }}>
-                        ✕ Rejected
+                      <span style={{ color: '#64748b', fontSize: '12px', fontWeight: '600', padding: '6px 0' }}>
+                        Rejected
                       </span>
                     )}
                   </div>
@@ -1180,7 +1177,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
               className="modal-close-btn candidate-inspect-close"
               aria-label="Close candidate dialog"
             >
-              ✕
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
             </button>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
@@ -1361,7 +1358,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
 
                 {/* Evidence & Reasoning */}
                 <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
-                  <h4 style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', margin: '0 0 8px' }}>🔍 Verification Evidence & AI Analysis</h4>
+                  <h4 style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', margin: '0 0 8px' }}>Verification Evidence & AI Analysis</h4>
                   <p style={{ fontSize: '12.5px', color: '#334155', margin: '0 0 10px' }}>
                     <strong>Activity assessment:</strong> {inspectingCandidate.activity_reason || 'Standard active heuristics applied.'}
                   </p>
@@ -1388,7 +1385,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                 <div style={{ background: inspectingCandidate.referral_required ? '#f0fdf4' : '#f8fafc', border: `1px solid ${inspectingCandidate.referral_required ? '#bbf7d0' : '#e2e8f0'}`, borderRadius: '10px', padding: '14px', marginBottom: '20px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
                     <h4 style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', margin: 0 }}>
-                      🏷️ Referral Configuration & Tracking
+                      Referral Configuration & Tracking
                     </h4>
                     <span style={{ fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '6px', background: inspectingCandidate.referral_required ? '#dcfce7' : '#f1f5f9', color: inspectingCandidate.referral_required ? '#15803d' : '#64748b' }}>
                       {inspectingCandidate.referral_required ? 'Mandatory Gate Active' : 'Optional Referral'}
@@ -1440,7 +1437,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                 <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                     <h4 style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', margin: 0 }}>
-                      🔗 Opportunity Link Verification
+                      Opportunity Link Verification
                     </h4>
                     <span style={{
                       fontSize: '11px',
@@ -1539,7 +1536,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                           cursor: 'pointer'
                         }}
                       >
-                        🔄 Recheck Link
+                        Recheck Link
                       </button>
                     </div>
 
@@ -1556,7 +1553,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                     })()}
 
                     <div style={{ fontSize: '11.5px', color: '#64748b', fontStyle: 'italic', background: '#f1f5f9', padding: '6px 10px', borderRadius: '4px' }}>
-                      ℹ️ Note: Webpage accessibility verifies destination reachability only; it does not confirm freelance or task-based qualification.
+                      <strong>Note:</strong> Webpage accessibility verifies destination reachability only; it does not confirm freelance or task-based qualification.
                     </div>
                   </div>
                 </div>
@@ -1565,7 +1562,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                 <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                     <h4 style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', margin: 0 }}>
-                      💼 Gig Qualification & Review Status
+                      Gig Qualification & Review Status
                     </h4>
                     <span style={{
                       fontSize: '11px',
@@ -1610,7 +1607,7 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                     </div>
 
                     <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '6px', padding: '8px 12px', fontSize: '11.5px', color: '#065f46', marginTop: '4px' }}>
-                      🔒 <strong>Learner Catalog Isolation:</strong> This listing is strictly quarantined in the staging store and <strong>cannot appear on the learner dashboard</strong> until an administrator explicitly reviews and approves it.
+                      <strong>Learner Catalog Isolation:</strong> This listing is strictly quarantined in the staging store and <strong>cannot appear on the learner dashboard</strong> until an administrator explicitly reviews and approves it.
                     </div>
                   </div>
                 </div>
@@ -1620,42 +1617,42 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                   <div className="candidate-modal-actions-left">
                     <button
                       onClick={() => setIsEditing(true)}
-                      style={{ background: '#f3f4f6', border: '1px solid #d1d5db', padding: '8px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+                      style={{ background: '#ffffff', color: '#111827', border: '1px solid #d1d5db', padding: '8px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
                     >
-                      ✏️ Edit Fields
+                      Edit Fields
                     </button>
                     <button
                       onClick={() => handleMarkDuplicate(inspectingCandidate)}
-                      style={{ background: '#f3f4f6', border: '1px solid #d1d5db', padding: '8px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+                      style={{ background: '#ffffff', color: '#111827', border: '1px solid #d1d5db', padding: '8px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
                     >
-                      📋 Mark Duplicate
+                      Mark Duplicate
                     </button>
                     <button
                       onClick={() => {
                         handlePause(inspectingCandidate);
                         setInspectingCandidate(null);
                       }}
-                      style={{ background: '#fef3c7', color: '#b45309', border: 'none', padding: '8px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}
+                      style={{ background: '#ffffff', color: '#374151', border: '1px solid #d1d5db', padding: '8px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
                     >
-                      ⏸ Pause
+                      Pause
                     </button>
                     <button
                       onClick={() => {
                         handleStop(inspectingCandidate);
                         setInspectingCandidate(null);
                       }}
-                      style={{ background: '#fee2e2', color: '#991b1b', border: 'none', padding: '8px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}
+                      style={{ background: '#ffffff', color: '#374151', border: '1px solid #d1d5db', padding: '8px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
                     >
-                      ⏹ Stop
+                      Stop
                     </button>
                   </div>
 
                   <div className="candidate-modal-actions-right">
                     <button
                       onClick={() => handleReject(inspectingCandidate)}
-                      style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}
+                      style={{ background: '#ffffff', color: '#374151', border: '1px solid #d1d5db', padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
                     >
-                      ✕ Reject Candidate
+                      Reject Candidate
                     </button>
                     <button
                       onClick={() => {
@@ -1663,9 +1660,9 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                         setInspectingCandidate(null);
                       }}
                       disabled={actionLoading}
-                      style={{ background: '#16a34a', color: '#fff', border: 'none', padding: '8px 18px', borderRadius: '6px', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}
+                      style={{ background: '#0f172a', color: '#ffffff', border: '1px solid #0f172a', padding: '8px 18px', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
                     >
-                      ✓ Approve & Publish to Gigs
+                      Approve & Publish to Gigs
                     </button>
                   </div>
                 </div>

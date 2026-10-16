@@ -276,19 +276,19 @@ export const DEFAULT_SEED_GIGS = [
 export const DEFAULT_LEARNER_NOTIFICATIONS = [
   {
     id: 'notif_opps_m4_m3',
-    icon: '⚡',
+    icon: '•',
     title: 'New opportunities in M4 & M3',
     time: 'Just now · VibeCoder & DeepAnnotator listings active'
   },
   {
     id: 'notif_featured_briefs',
-    icon: '⭐',
-    title: 'Featured briefs updated',
+    icon: '•',
+    title: 'Verified briefs updated',
     time: '2 hours ago · Verified rate briefs available'
   },
   {
     id: 'notif_profile_active',
-    icon: '💼',
+    icon: '•',
     title: 'Learner Profile Active',
     time: 'Today · Ready to apply directly via Gateway'
   }
@@ -644,23 +644,23 @@ export function LearnerDashboard() {
     return 'Contract';
   };
 
-  // Module badge config with crisp colors matching reference image
+  // Module badge config with clean neutral palette
   const getModuleBadgeConfig = (trackId) => {
     switch (trackId) {
       case 'M1':
-        return { label: 'M1 · AI Video / Reels', bg: '#fff1f2', color: '#e11d48', border: '#fecdd3' };
+        return { label: 'M1 · AI Video / Reels', bg: '#f1f5f9', color: '#111827', border: '#e2e8f0' };
       case 'M2':
-        return { label: 'M2 · AI Design / Visual', bg: '#f5f3ff', color: '#7c3aed', border: '#ddd6fe' };
+        return { label: 'M2 · AI Design / Visual', bg: '#f1f5f9', color: '#111827', border: '#e2e8f0' };
       case 'M3':
-        return { label: 'M3 · Data Annotation', bg: '#ecfdf5', color: '#059669', border: '#a7f3d0' };
+        return { label: 'M3 · Data Annotation', bg: '#f1f5f9', color: '#111827', border: '#e2e8f0' };
       case 'M4':
-        return { label: 'M4 · AI Coding', bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' };
+        return { label: 'M4 · AI Coding', bg: '#f1f5f9', color: '#111827', border: '#e2e8f0' };
       case 'M5':
-        return { label: 'M5 · AI Marketing / Growth', bg: '#fffbeb', color: '#d97706', border: '#fde68a' };
+        return { label: 'M5 · AI Marketing / Growth', bg: '#f1f5f9', color: '#111827', border: '#e2e8f0' };
       case 'M6':
-        return { label: 'M6 · AI Automation / Agents', bg: '#ecfeff', color: '#0891b2', border: '#a5f3fc' };
+        return { label: 'M6 · AI Automation / Agents', bg: '#f1f5f9', color: '#111827', border: '#e2e8f0' };
       default:
-        return { label: trackId || 'General', bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' };
+        return { label: trackId || 'General', bg: '#f1f5f9', color: '#111827', border: '#e2e8f0' };
     }
   };
 
@@ -795,11 +795,6 @@ export function LearnerDashboard() {
                 <span className="opp-module-code">{splitBadge.code}</span>
                 <span className="opp-module-name">{splitBadge.name}</span>
               </div>
-              {(g.is_featured || g.priority === 'Featured') && (
-                <span className="opp-featured-badge">
-                  ⭐ Featured
-                </span>
-              )}
             </div>
 
             <button
@@ -809,7 +804,7 @@ export function LearnerDashboard() {
               title={isSaved ? "Saved in your list" : "Save opportunity"}
               aria-label={isSaved ? "Remove from saved gigs" : "Save gig"}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill={isSaved ? "#2563eb" : "none"} stroke={isSaved ? "#2563eb" : "#64748b"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill={isSaved ? "#0f172a" : "none"} stroke={isSaved ? "#0f172a" : "#64748b"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
               </svg>
             </button>
@@ -834,10 +829,16 @@ export function LearnerDashboard() {
 
           {/* Company & Location / Work Mode */}
           <div className="opp-card-company-row">
-            <span className="opp-company-icon">🏢</span>
+            <span className="opp-company-icon">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+                <line x1="9" y1="22" x2="9" y2="2" />
+                <line x1="15" y1="22" x2="15" y2="2" />
+              </svg>
+            </span>
             <span className="opp-company-text">{company}</span>
             <span className="opp-company-dot">·</span>
-            <span className="opp-location-text">📍 {workMode}</span>
+            <span className="opp-location-text">{workMode}</span>
           </div>
 
           {/* Description Snippet */}
@@ -848,12 +849,23 @@ export function LearnerDashboard() {
           {/* Compensation & Contract / Engagement Type Row */}
           <div className="opp-card-meta-row">
             <div className="opp-meta-item">
-              <span className="opp-meta-icon">💰</span>
+              <span className="opp-meta-icon">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
+                  <path d="M12 6v2m0 8v2" />
+                </svg>
+              </span>
               <span className="opp-rate-amount opp-meta-rate">{compensation}</span>
             </div>
             <span className="opp-meta-divider">|</span>
             <div className="opp-meta-item">
-              <span className="opp-meta-icon">💼</span>
+              <span className="opp-meta-icon">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                  <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                </svg>
+              </span>
               <span className="opp-meta-type">{contractType}</span>
             </div>
           </div>
@@ -879,7 +891,7 @@ export function LearnerDashboard() {
             disabled={isClosed}
             aria-label={`${isClosed ? 'Closed' : isApplied ? 'Applied' : g.link_type === 'platform_login_required' ? 'Sign In & View Task' : 'Apply Now'} for ${g.title}`}
           >
-            {isClosed ? 'Closed' : isApplied ? 'Applied ✓' : g.link_type === 'platform_login_required' ? 'Sign In & View ↗' : g.link_type === 'direct_apply' ? 'Apply Now ↗' : 'Apply Now / View ↗'}
+            {isClosed ? 'Closed' : isApplied ? 'Applied' : g.link_type === 'platform_login_required' ? 'Sign In & View ↗' : g.link_type === 'direct_apply' ? 'Apply Now ↗' : 'Apply Now / View ↗'}
           </button>
         </div>
       </div>
@@ -914,7 +926,12 @@ export function LearnerDashboard() {
             className={`learner-nav-btn ${learnerActiveTab === 'home' ? 'active' : ''}`}
             onClick={() => { setLearnerActiveTab('home'); setMobileNavOpen(false); }}
           >
-            <span className="nav-btn-icon">🏠</span>
+            <span className="nav-btn-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                <polyline points="9 22 9 12 15 12 15 22" />
+              </svg>
+            </span>
             <span className="nav-btn-label">Home</span>
           </button>
 
@@ -923,7 +940,11 @@ export function LearnerDashboard() {
             className={`learner-nav-btn ${learnerActiveTab === 'saved' ? 'active' : ''}`}
             onClick={() => { setLearnerActiveTab('saved'); setMobileNavOpen(false); }}
           >
-            <span className="nav-btn-icon">🔖</span>
+            <span className="nav-btn-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+              </svg>
+            </span>
             <span className="nav-btn-label">Saved Gigs</span>
             {savedGigIds.length > 0 && (
               <span className="nav-btn-badge">{savedGigIds.length}</span>
@@ -935,7 +956,14 @@ export function LearnerDashboard() {
             className={`learner-nav-btn ${learnerActiveTab === 'applications' ? 'active' : ''}`}
             onClick={() => { setLearnerActiveTab('applications'); setMobileNavOpen(false); }}
           >
-            <span className="nav-btn-icon">📄</span>
+            <span className="nav-btn-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+            </span>
             <span className="nav-btn-label">My Applications</span>
             {appliedGigs.length > 0 && (
               <span className="nav-btn-badge">{appliedGigs.length}</span>
@@ -981,7 +1009,11 @@ export function LearnerDashboard() {
               onClick={() => setMobileNavOpen(!mobileNavOpen)}
               aria-label="Toggle Navigation Drawer"
             >
-              ☰
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
             </button>
             <div className="learner-mobile-brand">
               <img src="/fox.svg" alt="UpShift" style={{ width: '24px', height: '24px' }} />
@@ -992,7 +1024,12 @@ export function LearnerDashboard() {
           <div className="learner-topbar-right">
             {/* Search Input in Topbar (Desktop / Tablet) */}
             <div className="learner-search-pill-wrapper">
-              <span className="search-icon">🔍</span>
+              <span className="search-icon">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </span>
               <input
                 type="text"
                 placeholder="Search opportunities, skills, or keywords..."
@@ -1007,7 +1044,10 @@ export function LearnerDashboard() {
                   className="search-clear-btn"
                   aria-label="Clear search"
                 >
-                  ✕
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
                 </button>
               )}
             </div>
@@ -1021,7 +1061,10 @@ export function LearnerDashboard() {
                 title={unreadNotifCount > 0 ? `Notifications (${unreadNotifCount} unread)` : 'Notifications'}
                 aria-label={`Notifications${unreadNotifCount > 0 ? ` (${unreadNotifCount} unread)` : ''}`}
               >
-                🔔
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
                 {unreadNotifCount > 0 && (
                   <span className="learner-notif-badge">{unreadNotifCount}</span>
                 )}
@@ -1043,7 +1086,12 @@ export function LearnerDashboard() {
                           Mark all read
                         </button>
                       )}
-                      <button type="button" onClick={() => setShowNotifications(false)} className="modal-close-x">✕</button>
+                      <button type="button" onClick={() => setShowNotifications(false)} className="modal-close-x" aria-label="Close notifications">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                      </button>
                     </div>
                   </div>
                   <div className="notif-list">
@@ -1084,7 +1132,7 @@ export function LearnerDashboard() {
               <div className="learner-hero-row">
                 <div className="learner-hero-text">
                   <h1 className="learner-welcome-heading">
-                    Hi {firstName}! <span className="wave-emoji">👋</span>
+                    Hi {firstName}! <span className="wave-emoji" aria-hidden="true" />
                   </h1>
                   <p className="learner-welcome-sub">
                     Discover real opportunities to build your skills and earn. Explore vetted freelance, contract, and project gigs across UpShift's six AI specialization modules.
@@ -1112,14 +1160,24 @@ export function LearnerDashboard() {
                       <span>Apply</span>
                       <span>Grow</span>
                     </div>
-                    <div className="caption-trend">📈</div>
+                    <div className="caption-trend">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+                        <polyline points="17 6 23 6 23 12" />
+                      </svg>
+                    </div>
                   </div>
                 </div>
               </div>
 
               {/* Mobile Search Bar (Only shown on small screens when topbar search is hidden) */}
               <div className="learner-mobile-search-bar">
-                <span className="search-icon">🔍</span>
+                <span className="search-icon">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                </span>
                 <input
                   type="text"
                   placeholder="Search opportunities, skills, or keywords..."
@@ -1189,24 +1247,17 @@ export function LearnerDashboard() {
                   </button>
                   <button
                     type="button"
-                    className={`discovery-pill-btn ${discoveryFilter === 'featured' ? 'active' : ''}`}
-                    onClick={() => setDiscoveryFilter('featured')}
-                  >
-                    ⭐ Featured ({gigs.filter(g => g.is_featured || g.priority === 'Featured').length})
-                  </button>
-                  <button
-                    type="button"
                     className={`discovery-pill-btn ${discoveryFilter === 'newest' ? 'active' : ''}`}
                     onClick={() => setDiscoveryFilter('newest')}
                   >
-                    ⚡ New Posted
+                    New Posted
                   </button>
                   <button
                     type="button"
                     className={`discovery-pill-btn ${discoveryFilter === 'high_pay' ? 'active' : ''}`}
                     onClick={() => setDiscoveryFilter('high_pay')}
                   >
-                    📊 Highest Pay
+                    Highest Pay
                   </button>
                 </div>
 
@@ -1233,7 +1284,12 @@ export function LearnerDashboard() {
                 </div>
               ) : filteredGigs.length === 0 ? (
                 <div className="learner-empty-state">
-                  <div style={{ fontSize: '42px', marginBottom: '12px' }}>🔍</div>
+                  <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center' }}>
+                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                  </div>
                   <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '6px' }}>No opportunities found</h3>
                   <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px', maxWidth: '440px' }}>
                     We could not find any active briefs matching your search keywords or module filter.
@@ -1260,7 +1316,7 @@ export function LearnerDashboard() {
             <div className="learner-tab-view">
               <div className="learner-section-header">
                 <div>
-                  <h2 className="learner-section-title">🔖 Saved Opportunities</h2>
+                  <h2 className="learner-section-title">Saved Opportunities</h2>
                   <p className="learner-section-sub">Opportunities bookmarked for your review and application.</p>
                 </div>
                 <button
@@ -1274,7 +1330,11 @@ export function LearnerDashboard() {
 
               {filteredGigs.length === 0 ? (
                 <div className="learner-empty-state">
-                  <div style={{ fontSize: '42px', marginBottom: '12px' }}>🔖</div>
+                  <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center' }}>
+                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                    </svg>
+                  </div>
                   <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '6px' }}>No saved gigs yet</h3>
                   <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px', maxWidth: '420px' }}>
                     Click the bookmark icon on any opportunity card in the Home feed to save it here for later.
@@ -1300,7 +1360,7 @@ export function LearnerDashboard() {
             <div className="learner-tab-view">
               <div className="learner-section-header">
                 <div>
-                  <h2 className="learner-section-title">📄 My Applications</h2>
+                  <h2 className="learner-section-title">My Applications</h2>
                   <p className="learner-section-sub">Opportunities you have visited and applied to via their referral gateway.</p>
                 </div>
                 <button
@@ -1314,7 +1374,14 @@ export function LearnerDashboard() {
 
               {appliedGigs.length === 0 ? (
                 <div className="learner-empty-state">
-                  <div style={{ fontSize: '42px', marginBottom: '12px' }}>📄</div>
+                  <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center' }}>
+                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                    </svg>
+                  </div>
                   <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '6px' }}>No applications yet</h3>
                   <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px', maxWidth: '420px' }}>
                     When you inspect an opportunity and click "Apply via Gateway", your submission will be tracked here.
@@ -1356,7 +1423,7 @@ export function LearnerDashboard() {
                             </td>
                             <td>
                               <span style={{ background: '#ecfdf5', color: '#059669', padding: '3px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
-                                ✓ Gateway Visited
+                                Gateway Visited
                               </span>
                             </td>
                             <td style={{ textAlign: 'right' }}>
@@ -1391,18 +1458,20 @@ export function LearnerDashboard() {
                 <span
                   className="opp-module-badge"
                   style={{
-                    background: getModuleBadgeConfig(viewingGig.track_id).bg,
-                    color: getModuleBadgeConfig(viewingGig.track_id).color,
-                    borderColor: getModuleBadgeConfig(viewingGig.track_id).border
+                    background: '#f1f5f9',
+                    color: '#0f172a',
+                    border: '1px solid #e2e8f0'
                   }}
                 >
                   {getModuleBadgeConfig(viewingGig.track_id).label}
                 </span>
-                {(viewingGig.is_featured || viewingGig.priority === 'Featured') && (
-                  <span className="opp-featured-badge">⭐ Featured</span>
-                )}
               </div>
-              <button onClick={() => setViewingGig(null)} className="modal-close-btn" aria-label="Close modal">✕</button>
+              <button onClick={() => setViewingGig(null)} className="modal-close-btn" aria-label="Close modal">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
             </div>
 
             <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#0f172a', marginBottom: '8px', lineHeight: '1.3' }}>
@@ -1411,7 +1480,13 @@ export function LearnerDashboard() {
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', fontSize: '13.5px', fontWeight: '600' }}>
-                <span>🏢</span>
+                <span className="opp-company-icon">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+                    <line x1="9" y1="22" x2="9" y2="2" />
+                    <line x1="15" y1="22" x2="15" y2="2" />
+                  </svg>
+                </span>
                 <span>{getGigCompany(viewingGig)}</span>
               </div>
               <span style={{ color: '#cbd5e1' }}>•</span>
@@ -1478,7 +1553,7 @@ export function LearnerDashboard() {
 
             {viewingGig.link_type === 'platform_login_required' && (
               <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: '12px', padding: '10px 14px', borderRadius: '8px', marginBottom: '16px' }}>
-                🔐 <strong>External Task Platform:</strong> This opportunity requires signing in or creating an account on the host platform before accepting or starting tasks.
+                <strong>External Task Platform:</strong> This opportunity requires signing in or creating an account on the host platform before accepting or starting tasks.
               </div>
             )}
 
@@ -1489,7 +1564,7 @@ export function LearnerDashboard() {
                 style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 onClick={(e) => handleToggleSaveGig(viewingGig.id || viewingGig.external_gig_id, e)}
               >
-                <span>{savedGigIds.includes(viewingGig.id || viewingGig.external_gig_id) ? '🔖 Saved' : '🔖 Save Gig'}</span>
+                <span>{savedGigIds.includes(viewingGig.id || viewingGig.external_gig_id) ? 'Saved' : 'Save Gig'}</span>
               </button>
 
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -1533,7 +1608,10 @@ export function LearnerDashboard() {
                 className="modal-close-btn"
                 aria-label="Close modal"
               >
-                ✕
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
               </button>
             </div>
 
@@ -1574,13 +1652,15 @@ export function LearnerDashboard() {
                     }}
                     className="btn-edit-profile"
                   >
-                    ✏️ Edit Profile
+                    Edit Profile
                   </button>
                 </div>
 
                 {profileSaveStatus === 'success' && profileSaveMsg && (
                   <div className="account-status-alert success" style={{ marginBottom: '14px' }}>
-                    <span>✓</span>
+                    <span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    </span>
                     <span>{profileSaveMsg}</span>
                   </div>
                 )}
@@ -1623,7 +1703,9 @@ export function LearnerDashboard() {
 
                 {profileSaveStatus === 'error' && (
                   <div className="account-status-alert error" style={{ marginBottom: '14px' }}>
-                    <span>⚠️</span>
+                    <span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    </span>
                     <span>{profileSaveMsg || 'Failed to update profile.'}</span>
                   </div>
                 )}
@@ -1714,7 +1796,7 @@ export function LearnerDashboard() {
                     className="btn-view-opp"
                     style={{ padding: '8px 20px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   >
-                    {isSavingProfile ? 'Saving...' : '💾 Save Changes'}
+                    {isSavingProfile ? 'Saving...' : 'Save Changes'}
                   </button>
                 </div>
               </form>
@@ -1728,7 +1810,7 @@ export function LearnerDashboard() {
                 className="btn-pill-save"
                 style={{ color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2', fontWeight: '700' }}
               >
-                🚪 Sign Out
+                Sign Out
               </button>
 
               <button
@@ -1867,7 +1949,7 @@ export function AdminDashboard() {
   useEffect(() => {
     let active = true;
     fetchCandidateQueue().then(queue => {
-      if (active && Array.isArray(queue) && queue.length > 0) {
+      if (active && Array.isArray(queue) && queue.syncSuccess && !queue.isFallback) {
         setCandidates(queue);
       }
     });
@@ -1942,6 +2024,16 @@ export function AdminDashboard() {
       // Safe fallback
     }
   }, [adminActiveTab]);
+
+  // Prevent background page/body scrolling on desktop admin layout
+  useEffect(() => {
+    if (typeof document !== 'undefined' && document.body) {
+      document.body.classList.add('admin-body-lock');
+      return () => {
+        document.body.classList.remove('admin-body-lock');
+      };
+    }
+  }, []);
 
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -2068,7 +2160,7 @@ export function AdminDashboard() {
     try {
       const { data, error } = await supabase.from('gigs').insert([gigToInsert]).select();
       if (error) {
-        alert(`❌ Failed to create opportunity: ${error.message}`);
+        alert(`Failed to create opportunity: ${error.message}`);
         return;
       }
       if (data && data.length > 0) {
@@ -2089,7 +2181,7 @@ export function AdminDashboard() {
         });
       }
     } catch (err) {
-      alert(`❌ Failed to create opportunity: ${err.message}`);
+      alert(`Failed to create opportunity: ${err.message}`);
     }
   };
 
@@ -2099,12 +2191,12 @@ export function AdminDashboard() {
     try {
       const { error } = await supabase.from('gigs').delete().eq('id', gigId);
       if (error) {
-        alert(`❌ Failed to delete opportunity: ${error.message}`);
+        alert(`Failed to delete opportunity: ${error.message}`);
         return;
       }
       setGigs(gigs.filter(g => g.id !== gigId));
     } catch (err) {
-      alert(`❌ Failed to delete opportunity: ${err.message}`);
+      alert(`Failed to delete opportunity: ${err.message}`);
     }
   };
 
@@ -2241,13 +2333,13 @@ export function AdminDashboard() {
       const { data, error } = await supabase.from('gigs').insert(newRowsToInsert).select();
       if (error) {
         setCsvError(`Database insertion error: ${error.message}`);
-        alert(`❌ Import Failed: ${error.message}\n\nPlease check that you are logged in as admin.`);
+        alert(`Import Failed: ${error.message}\n\nPlease check that you are logged in as admin.`);
         return;
       }
 
       if (data && data.length > 0) {
         setGigs(deduplicateGigList([...data, ...gigs]));
-        alert(`✓ Successfully imported ${data.length} new opportunities into the database!`);
+        alert(`Successfully imported ${data.length} new opportunities into the database!`);
         setCsvPreview([]);
         setCsvWarnings([]);
         setCsvError('');
@@ -2257,7 +2349,7 @@ export function AdminDashboard() {
       }
     } catch (err) {
       setCsvError(`Unexpected error during import: ${err.message}`);
-      alert(`❌ Import Exception: ${err.message}`);
+      alert(`Import Exception: ${err.message}`);
     } finally {
       setCsvImporting(false);
     }
@@ -2303,7 +2395,10 @@ export function AdminDashboard() {
               onClick={() => setMobileNavOpen(false)}
               aria-label="Close Navigation Menu"
             >
-              ✕
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
             </button>
           </div>
         </div>
@@ -2319,7 +2414,11 @@ export function AdminDashboard() {
             onClick={() => { handleTabChange('overview'); setMobileNavOpen(false); }}
           >
             <span className="saas-nav-item-content">
-              <span>📊</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="18" y1="20" x2="18" y2="10" />
+                <line x1="12" y1="20" x2="12" y2="4" />
+                <line x1="6" y1="20" x2="6" y2="14" />
+              </svg>
               <span>Overview</span>
             </span>
           </button>
@@ -2332,7 +2431,10 @@ export function AdminDashboard() {
             onClick={() => { handleTabChange('directory'); setMobileNavOpen(false); }}
           >
             <span className="saas-nav-item-content">
-              <span>📋</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+              </svg>
               <span>Published Gigs</span>
             </span>
             <span
@@ -2352,7 +2454,9 @@ export function AdminDashboard() {
             onClick={() => { handleTabChange('discovery'); setMobileNavOpen(false); }}
           >
             <span className="saas-nav-item-content">
-              <span>⚡</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+              </svg>
               <span>AI Discovery Queue</span>
             </span>
             {pendingReviews > 0 && (
@@ -2370,7 +2474,10 @@ export function AdminDashboard() {
             onClick={() => { setIsAddModalOpen(true); setMobileNavOpen(false); }}
           >
             <span className="saas-nav-item-content">
-              <span>➕</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
               <span>Add New Gig</span>
             </span>
           </button>
@@ -2381,7 +2488,11 @@ export function AdminDashboard() {
             onClick={() => { setIsImportModalOpen(true); setMobileNavOpen(false); }}
           >
             <span className="saas-nav-item-content">
-              <span>📤</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
               <span>Bulk CSV Import</span>
             </span>
           </button>
@@ -2392,7 +2503,11 @@ export function AdminDashboard() {
             onClick={() => { handleExportCSV(); setMobileNavOpen(false); }}
           >
             <span className="saas-nav-item-content">
-              <span>📥</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
               <span>Export CSV (19-Col)</span>
             </span>
           </button>
@@ -2414,7 +2529,7 @@ export function AdminDashboard() {
             className="saas-action-link"
             style={{ color: '#dc2626', fontWeight: '700', width: '100%', justifyContent: 'flex-start', padding: '6px 0' }}
           >
-            🚪 Sign Out
+            Sign Out
           </button>
         </div>
       </aside>
@@ -2432,7 +2547,11 @@ export function AdminDashboard() {
                 aria-label="Toggle Navigation Menu"
                 aria-expanded={mobileNavOpen}
               >
-                ☰
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="3" y1="12" x2="21" y2="12" />
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
               </button>
               <h1 className="admin-header-title">
                 <span className="admin-header-title-full">UpShift Gigs Dashboard</span>
@@ -2442,7 +2561,13 @@ export function AdminDashboard() {
 
             <div className="saas-topbar-right">
               <button onClick={handleSignOut} className="btn-admin-nav" title="Sign out of admin" aria-label="Sign out">
-                <span className="btn-admin-nav-icon">🚪</span>
+                <span className="btn-admin-nav-icon">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                  </svg>
+                </span>
                 <span className="btn-admin-nav-text">Sign Out</span>
               </button>
             </div>
@@ -2456,7 +2581,7 @@ export function AdminDashboard() {
               onClick={() => handleTabChange('overview')}
               className={`admin-unified-tab ${adminActiveTab === 'overview' ? 'active active-overview' : ''}`}
             >
-              📊 Overview
+              Overview
             </button>
             <button
               id="tab-published-gigs"
@@ -2464,7 +2589,7 @@ export function AdminDashboard() {
               onClick={() => handleTabChange('directory')}
               className={`admin-unified-tab ${adminActiveTab === 'directory' ? 'active active-directory' : ''}`}
             >
-              📋 Published Gigs ({gigs.length})
+              Published Gigs ({gigs.length})
             </button>
             <button
               id="tab-ai-discovery-queue"
@@ -2472,7 +2597,7 @@ export function AdminDashboard() {
               onClick={() => handleTabChange('discovery')}
               className={`admin-unified-tab ${adminActiveTab === 'discovery' ? 'active active-discovery' : ''}`}
             >
-              ⚡ AI Discovery Queue
+              AI Discovery Queue
               {pendingReviews > 0 && (
                 <span className="admin-tab-pending-badge">
                   {pendingReviews}
@@ -2490,7 +2615,7 @@ export function AdminDashboard() {
               <div className="overview-hero-card">
                 <div>
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#eff6ff', color: '#1d4ed8', padding: '4px 10px', borderRadius: '9999px', fontSize: '12px', fontWeight: '700', marginBottom: '8px' }}>
-                    <span>🛡️ Administrator Workspace</span>
+                    <span>Administrator Workspace</span>
                   </div>
                   <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', margin: '0 0 6px', letterSpacing: '-0.02em' }}>
                     Commercial Gigs & Discovery Intelligence
@@ -2506,14 +2631,17 @@ export function AdminDashboard() {
                 <div className="saas-kpi-card">
                   <div className="saas-kpi-header">
                     <span className="saas-kpi-label">Published Gigs</span>
-                    <div className="saas-kpi-icon" style={{ background: '#ecfdf5', color: '#059669' }}>
-                      📋
+                    <div className="saas-kpi-icon" style={{ background: '#f1f5f9', color: '#1e293b' }}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                        <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                      </svg>
                     </div>
                   </div>
                   <div className="saas-kpi-value">{gigs.length}</div>
                   <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Active opportunities in marketplace</p>
                   <div className="saas-kpi-footer">
-                    <span style={{ color: '#059669', fontWeight: '700' }}>Live on Learner Board</span>
+                    <span style={{ color: '#475569', fontWeight: '600' }}>Live on Learner Board</span>
                     <button onClick={() => handleTabChange('directory')} className="saas-action-link">
                       Manage →
                     </button>
@@ -2523,14 +2651,17 @@ export function AdminDashboard() {
                 <div className="saas-kpi-card">
                   <div className="saas-kpi-header">
                     <span className="saas-kpi-label">Pending Review</span>
-                    <div className="saas-kpi-icon" style={{ background: '#fffbeb', color: '#d97706' }}>
-                      ⏳
+                    <div className="saas-kpi-icon" style={{ background: '#f1f5f9', color: '#1e293b' }}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                      </svg>
                     </div>
                   </div>
                   <div className="saas-kpi-value">{pendingReviews}</div>
                   <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Candidates awaiting human approval</p>
                   <div className="saas-kpi-footer">
-                    <span style={{ color: '#d97706', fontWeight: '700' }}>Awaiting Action</span>
+                    <span style={{ color: '#475569', fontWeight: '600' }}>Awaiting Action</span>
                     <button onClick={() => handleTabChange('discovery')} className="saas-action-link">
                       Review Now →
                     </button>
@@ -2540,14 +2671,16 @@ export function AdminDashboard() {
                 <div className="saas-kpi-card">
                   <div className="saas-kpi-header">
                     <span className="saas-kpi-label">Approved In Staging</span>
-                    <div className="saas-kpi-icon" style={{ background: '#eff6ff', color: '#2563eb' }}>
-                      ✓
+                    <div className="saas-kpi-icon" style={{ background: '#f1f5f9', color: '#1e293b' }}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
                     </div>
                   </div>
                   <div className="saas-kpi-value">{approvedInStaging}</div>
                   <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Verified and ready for export/publish</p>
                   <div className="saas-kpi-footer">
-                    <span style={{ color: '#2563eb', fontWeight: '700' }}>Staged Candidates</span>
+                    <span style={{ color: '#475569', fontWeight: '600' }}>Staged Candidates</span>
                     <button onClick={() => handleTabChange('discovery')} className="saas-action-link">
                       Inspect Queue →
                     </button>
@@ -2557,8 +2690,11 @@ export function AdminDashboard() {
                 <div className="saas-kpi-card">
                   <div className="saas-kpi-header">
                     <span className="saas-kpi-label">Total Discovery Records</span>
-                    <div className="saas-kpi-icon" style={{ background: '#f1f5f9', color: '#475569' }}>
-                      📡
+                    <div className="saas-kpi-icon" style={{ background: '#f1f5f9', color: '#1e293b' }}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="2" />
+                        <path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14" />
+                      </svg>
                     </div>
                   </div>
                   <div className="saas-kpi-value">{candidates.length}</div>
@@ -2578,8 +2714,11 @@ export function AdminDashboard() {
                   className="saas-action-button-card"
                   onClick={() => setIsAddModalOpen(true)}
                 >
-                  <div className="saas-action-card-icon" style={{ background: '#eff6ff', color: '#2563eb' }}>
-                    ➕
+                  <div className="saas-action-card-icon" style={{ background: '#f1f5f9', color: '#1e293b' }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
                   </div>
                   <div className="saas-action-card-text">
                     <strong>Add Commercial Gig</strong>
@@ -2591,8 +2730,12 @@ export function AdminDashboard() {
                   className="saas-action-button-card"
                   onClick={() => setIsImportModalOpen(true)}
                 >
-                  <div className="saas-action-card-icon" style={{ background: '#f0fdf4', color: '#16a34a' }}>
-                    📤
+                  <div className="saas-action-card-icon" style={{ background: '#f1f5f9', color: '#1e293b' }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
                   </div>
                   <div className="saas-action-card-text">
                     <strong>Bulk CSV Import</strong>
@@ -2604,8 +2747,12 @@ export function AdminDashboard() {
                   className="saas-action-button-card"
                   onClick={handleExportCSV}
                 >
-                  <div className="saas-action-card-icon" style={{ background: '#fdf4ff', color: '#9333ea' }}>
-                    📥
+                  <div className="saas-action-card-icon" style={{ background: '#f1f5f9', color: '#1e293b' }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
                   </div>
                   <div className="saas-action-card-text">
                     <strong>Export 19-Col CSV</strong>
@@ -2720,13 +2867,13 @@ export function AdminDashboard() {
                     title="Export approved opportunities to 19-column CSV (FRD v1.0 Section 18)"
                     style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   >
-                    📥 Export CSV
+                    Export CSV
                   </button>
                   <button
                     onClick={() => setIsImportModalOpen(true)}
                     className="btn-bulk-import"
                   >
-                    📤 Bulk CSV Import
+                    Bulk CSV Import
                   </button>
                   <button
                     onClick={() => setIsAddModalOpen(true)}
@@ -2740,7 +2887,12 @@ export function AdminDashboard() {
               {/* Search Control (Filters moved into table headers) */}
               <div className="directory-controls-row">
                 <div className="search-input-box" style={{ width: '100%' }}>
-                  <span className="search-icon-prefix">🔍</span>
+                  <span className="search-icon-prefix">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                  </span>
                   <input
                     type="text"
                     placeholder="Search by title, overview, short description..."
@@ -2800,7 +2952,7 @@ export function AdminDashboard() {
                       <tr>
                         <td colSpan="5" style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                            <span role="status" aria-hidden="true">⏳</span>
+                            <span role="status" aria-hidden="true">●</span>
                             <span>Loading published gigs from database...</span>
                           </div>
                         </td>
@@ -2874,15 +3026,23 @@ export function AdminDashboard() {
                                 onClick={() => setEditingGig(g)}
                                 className="action-icon-btn"
                                 title="Edit Gig"
+                                aria-label="Edit Gig"
                               >
-                                ✏️
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="M12 20h9" />
+                                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                                </svg>
                               </button>
                               <button
                                 onClick={() => handleDeleteGig(g.id)}
                                 className="action-icon-btn danger-hover"
                                 title="Delete Gig"
+                                aria-label="Delete Gig"
                               >
-                                🗑️
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <polyline points="3 6 5 6 21 6" />
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                </svg>
                               </button>
                             </div>
                           </td>
@@ -2905,7 +3065,12 @@ export function AdminDashboard() {
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-row">
               <h2 className="modal-title">+ Add New Opportunity</h2>
-              <button onClick={() => setIsAddModalOpen(false)} className="modal-close-btn">✕</button>
+              <button onClick={() => setIsAddModalOpen(false)} className="modal-close-btn" aria-label="Close modal">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
             </div>
 
             <form onSubmit={handleAddGigSubmit}>
@@ -2945,7 +3110,7 @@ export function AdminDashboard() {
                     onChange={(e) => setNewGig({ ...newGig, priority: e.target.value })}
                     className="input-box"
                   >
-                    <option value="Featured">Featured</option>
+                    <option value="Featured">High Priority</option>
                     <option value="Standard">Standard</option>
                   </select>
                 </div>
@@ -3037,7 +3202,7 @@ export function AdminDashboard() {
                   type="submit"
                   className="btn-add-gig"
                 >
-                  Create Opportunity ✓
+                  Create Opportunity
                 </button>
               </div>
             </form>
@@ -3052,8 +3217,13 @@ export function AdminDashboard() {
         <div className="modal-overlay" onClick={() => setIsImportModalOpen(false)}>
           <div className="modal-card" style={{ maxWidth: '640px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-              <h2 className="modal-title" style={{ textAlign: 'center', width: '100%', margin: 0 }}>📤 Bulk CSV Import</h2>
-              <button onClick={() => setIsImportModalOpen(false)} className="modal-close-btn" style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)' }}>✕</button>
+              <h2 className="modal-title" style={{ textAlign: 'center', width: '100%', margin: 0 }}>Bulk CSV Import</h2>
+              <button onClick={() => setIsImportModalOpen(false)} className="modal-close-btn" aria-label="Close modal" style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
             </div>
 
             <p style={{ fontSize: '14px', color: '#64748b', margin: '0 auto 24px', textAlign: 'center', maxWidth: '480px' }}>
@@ -3067,7 +3237,15 @@ export function AdminDashboard() {
                 onChange={handleCsvFile}
                 style={{ display: 'none' }}
               />
-              <div style={{ fontSize: '38px', marginBottom: '8px', textAlign: 'center' }}>📄</div>
+              <div style={{ marginBottom: '8px', color: '#64748b', display: 'flex', justifyContent: 'center' }}>
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                  <polyline points="10 9 9 9 8 9" />
+                </svg>
+              </div>
               <strong style={{ color: '#0f172a', fontSize: '15px', fontWeight: '700', textAlign: 'center', display: 'block', width: '100%' }}>
                 Click to select or drop CSV file
               </strong>
@@ -3077,8 +3255,13 @@ export function AdminDashboard() {
             </label>
 
             {csvError && (
-              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '16px', textAlign: 'left' }}>
-                ⚠️ {csvError}
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '16px', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <span>{csvError}</span>
               </div>
             )}
 
@@ -3097,7 +3280,7 @@ export function AdminDashboard() {
             {csvPreview.length > 0 && (
               <div style={{ textAlign: 'center', marginBottom: '20px' }}>
                 <p style={{ fontWeight: '700', fontSize: '13.5px', color: '#059669', marginBottom: '10px', textAlign: 'center' }}>
-                  ✓ Parsed {csvPreview.length} valid opportunities from CSV:
+                  Parsed {csvPreview.length} valid opportunities from CSV:
                 </p>
                 <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px', textAlign: 'left', background: '#f8fafc' }}>
                   {csvPreview.slice(0, 5).map((row, i) => (
@@ -3128,7 +3311,7 @@ export function AdminDashboard() {
                 onClick={handleBulkImportConfirm}
                 className="btn-add-gig"
               >
-                {csvImporting ? 'Importing Gigs...' : `Import ${csvPreview.length} Gigs ✓`}
+                {csvImporting ? 'Importing Gigs...' : `Import ${csvPreview.length} Gigs`}
               </button>
             </div>
           </div>
@@ -3142,8 +3325,13 @@ export function AdminDashboard() {
         <div className="modal-overlay" onClick={() => setViewingGig(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-row">
-              <span className="priority-featured-tag">{viewingGig.track_id} · {viewingGig.priority || 'Standard'}</span>
-              <button onClick={() => setViewingGig(null)} className="modal-close-btn">✕</button>
+              <span className="module-pill-badge">{viewingGig.track_id}</span>
+              <button onClick={() => setViewingGig(null)} className="modal-close-btn" aria-label="Close modal">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
             </div>
 
             <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
@@ -3185,8 +3373,13 @@ export function AdminDashboard() {
         <div className="modal-overlay" onClick={() => setEditingGig(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-row">
-              <h2 className="modal-title">✏️ Edit Opportunity</h2>
-              <button onClick={() => setEditingGig(null)} className="modal-close-btn">✕</button>
+              <h2 className="modal-title">Edit Opportunity</h2>
+              <button onClick={() => setEditingGig(null)} className="modal-close-btn" aria-label="Close modal">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
             </div>
 
             <form onSubmit={async (e) => {
@@ -3206,7 +3399,7 @@ export function AdminDashboard() {
                 }).eq('id', editingGig.id);
 
                 if (error) {
-                  alert(`❌ Failed to update opportunity: ${error.message}`);
+                  alert(`Failed to update opportunity: ${error.message}`);
                   return;
                 }
 
@@ -3218,7 +3411,7 @@ export function AdminDashboard() {
                 setGigs(gigs.map(g => g.id === editingGig.id ? updatedGig : g));
                 setEditingGig(null);
               } catch (err) {
-                alert(`❌ Failed to update opportunity: ${err.message}`);
+                alert(`Failed to update opportunity: ${err.message}`);
               }
             }}>
               <div className="form-group">
@@ -3256,7 +3449,7 @@ export function AdminDashboard() {
                     onChange={(e) => setEditingGig({ ...editingGig, priority: e.target.value, is_featured: e.target.value === 'Featured' })}
                     className="input-box"
                   >
-                    <option value="Featured">Featured</option>
+                    <option value="Featured">High Priority</option>
                     <option value="Standard">Standard</option>
                   </select>
                 </div>
@@ -3312,7 +3505,7 @@ export function AdminDashboard() {
                   type="submit"
                   className="btn-add-gig"
                 >
-                  Save Changes ✓
+                  Save Changes
                 </button>
               </div>
             </form>
