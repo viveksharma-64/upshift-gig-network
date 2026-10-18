@@ -19,17 +19,23 @@ describe('Admin Review Queue — Link vs Gig Verification Distinctions', () => {
   const queueSrc = fs.readFileSync('./src/pages/CandidateReviewQueue.jsx', 'utf8');
   const dashboardSrc = fs.readFileSync('./src/pages/Dashboard.jsx', 'utf8');
 
-  test('1. Candidate cards clearly separate Link Status from Gig Qualification', () => {
+  test('1. Candidate cards clearly present Opportunity Link Status with simplified badges', () => {
     // Check for distinct Opportunity Link status line
     assert.ok(
       queueSrc.includes('Opportunity Link:') && queueSrc.includes('Live Page Verified'),
       'Card must explicitly label Opportunity Link status'
     );
 
-    // Check for distinct Gig Confirmation badges
-    assert.ok(
-      queueSrc.includes('Confirmed Gig (') && queueSrc.includes('Unconfirmed Work-Type'),
-      'Card must distinguish Confirmed Gig from Unconfirmed Work-Type'
+    // Confirmed Gig and Opp. Page badges are removed from candidate cards
+    assert.equal(
+      queueSrc.includes("Confirmed Gig ("),
+      false,
+      'Card must not render Confirmed Gig badge'
+    );
+    assert.equal(
+      queueSrc.includes("Opp. Page"),
+      false,
+      'Card must not render Opp. Page badge'
     );
   });
 
@@ -48,10 +54,11 @@ describe('Admin Review Queue — Link vs Gig Verification Distinctions', () => {
     assert.equal(evaluation.is_gig, false, 'Active webpage must not cause is_gig to be true');
     assert.equal(evaluation.action, 'pending_review');
 
-    // UI inspection: Confirmed Gig badge is strictly guarded by c.is_gig
-    assert.ok(
-      queueSrc.includes('c.is_gig ?'),
-      'Confirmed gig badge must be strictly conditional on c.is_gig === true'
+    // UI inspection: Candidate cards do not conflate webpage accessibility with gig confirmation
+    assert.equal(
+      queueSrc.includes("Confirmed Gig ("),
+      false,
+      'Confirmed Gig badge is removed from candidate cards'
     );
   });
 
@@ -62,7 +69,7 @@ describe('Admin Review Queue — Link vs Gig Verification Distinctions', () => {
     );
   });
 
-  test('4. Inspection modal provides separate Link Verification and Gig Qualification audit panels', () => {
+  test('4. Inspection modal provides simplified Opportunity Link Verification panel and omits Gig Qualification section', () => {
     // Section 1: Link Verification
     assert.ok(
       queueSrc.includes('Opportunity Link Verification') && queueSrc.includes('Link Reachability:'),
@@ -73,14 +80,16 @@ describe('Admin Review Queue — Link vs Gig Verification Distinctions', () => {
       'Modal must include explicit disclaimer that webpage accessibility does not equate to gig qualification'
     );
 
-    // Section 2: Gig Qualification
-    assert.ok(
-      queueSrc.includes('Gig Qualification & Review Status') && queueSrc.includes('Freelance / Task Work Confirmed:'),
-      'Modal must have dedicated Gig Qualification panel'
-    );
-    assert.ok(
-      queueSrc.includes('Pending Review Rationale:'),
-      'Modal must show why the candidate is pending human review'
+    // Single link: only Opportunity URL is shown
+    assert.ok(queueSrc.includes('Opportunity URL:'), 'Opportunity URL must be displayed');
+    assert.equal(queueSrc.includes('Application / Task-Start URL:'), false, 'Application / Task-Start URL must be removed');
+    assert.equal(queueSrc.includes('>Recheck Link</button>'), false, 'Visible Recheck Link button must be removed');
+
+    // Section 2: Gig Qualification & Review Status section is completely removed
+    assert.equal(
+      queueSrc.includes('Gig Qualification & Review Status'),
+      false,
+      'Modal must omit the redundant Gig Qualification & Review Status section'
     );
   });
 
@@ -89,12 +98,6 @@ describe('Admin Review Queue — Link vs Gig Verification Distinctions', () => {
     assert.ok(
       dashboardSrc.includes(".from('gigs')"),
       'Dashboard must query public.gigs table, never unapproved staging candidates'
-    );
-
-    // Modal reinforces learner isolation
-    assert.ok(
-      queueSrc.includes('Learner Catalog Isolation:') && queueSrc.includes('cannot appear on the learner dashboard'),
-      'Review queue must enforce and document that staging candidates are quarantined from the learner dashboard'
     );
   });
 

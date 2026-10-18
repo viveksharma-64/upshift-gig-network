@@ -2905,17 +2905,18 @@ export function AdminDashboard() {
 
               {/* Directory Table with In-Header Filters */}
               <div className="directory-table-wrapper">
-                <table className="directory-table">
+                <table className="directory-table published-gigs-table">
                   <thead>
                     <tr>
-                      <th>Opportunity</th>
-                      <th>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <th className="col-opportunity">Opportunity</th>
+                      <th className="col-module">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                           <span>Module</span>
                           <select
                             value={selectedModule}
                             onChange={(e) => setSelectedModule(e.target.value)}
                             className="table-header-select"
+                            aria-label="Filter by Module"
                           >
                             <option value="all">All Modules</option>
                             <option value="M1">M1 — AI Video / Reels</option>
@@ -2927,13 +2928,14 @@ export function AdminDashboard() {
                           </select>
                         </div>
                       </th>
-                      <th>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <th className="col-compensation">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                           <span>Compensation</span>
                           <select
                             value={sortBy}
                             onChange={(e) => setSortBy(e.target.value)}
                             className="table-header-select"
+                            aria-label="Filter and Sort by Compensation"
                           >
                             <option value="default">All / Default</option>
                             <option value="comp_low_high">Price: Low to High ↑</option>
@@ -2943,8 +2945,8 @@ export function AdminDashboard() {
                           </select>
                         </div>
                       </th>
-                      <th>Posted / Created</th>
-                      <th style={{ textAlign: 'right' }}>Actions</th>
+                      <th className="col-date">Posted / Created</th>
+                      <th className="col-actions" style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2967,7 +2969,7 @@ export function AdminDashboard() {
                       filteredAndSortedGigs.map((g) => (
                         <tr key={g.id || g.external_gig_id}>
                           {/* Opportunity */}
-                          <td className="gig-title-cell">
+                          <td className="gig-title-cell col-opportunity">
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <div
                                 role="button"
@@ -3002,25 +3004,25 @@ export function AdminDashboard() {
                           </td>
 
                           {/* Module */}
-                          <td>
+                          <td className="col-module">
                             <span className="module-pill-badge">
                               {g.track_id} · {g.track_id === 'M3' ? 'DeepAnnotator' : g.track_id === 'M1' ? 'ReelRush' : g.track_id === 'M2' ? 'VisualForge' : g.track_id === 'M4' ? 'VibeCoder' : g.track_id === 'M5' ? 'BrandBuzz' : 'AgentHandlers'}
                             </span>
                           </td>
 
                           {/* Compensation */}
-                          <td>
+                          <td className="col-compensation">
                             <div className="compensation-amount">{g.payment_amount || 'Unspecified'}</div>
                             <div className="compensation-type-label">{g.compensation_type || 'hourly'}</div>
                           </td>
 
                           {/* Date */}
-                          <td style={{ color: '#64748b', fontSize: '12px' }}>
+                          <td className="col-date" style={{ color: '#64748b', fontSize: '12px' }}>
                             {g.posted_at ? new Date(g.posted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Sep 30, 2026'}
                           </td>
 
                           {/* Actions */}
-                          <td style={{ textAlign: 'right' }}>
+                          <td className="col-actions" style={{ textAlign: 'right' }}>
                             <div className="actions-btn-group" style={{ justifyContent: 'flex-end' }}>
                               <button
                                 onClick={() => setEditingGig(g)}

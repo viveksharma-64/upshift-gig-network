@@ -1414,6 +1414,82 @@ body {
   max-width: 280px;
 }
 
+/* PUBLISHED GIGS DESKTOP LAYOUT (ACTIONS VISIBLE WITHOUT HORIZONTAL SCROLL) */
+.published-gigs-table {
+  width: 100%;
+}
+
+@media (min-width: 1025px) {
+  .published-gigs-table {
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  .published-gigs-table th,
+  .published-gigs-table td {
+    padding: 12px 10px;
+  }
+
+  .published-gigs-table th.col-opportunity,
+  .published-gigs-table td.col-opportunity {
+    width: 36%;
+  }
+
+  .published-gigs-table th.col-module,
+  .published-gigs-table td.col-module {
+    width: 21%;
+  }
+
+  .published-gigs-table th.col-compensation,
+  .published-gigs-table td.col-compensation {
+    width: 19%;
+  }
+
+  .published-gigs-table th.col-date,
+  .published-gigs-table td.col-date {
+    width: 13%;
+  }
+
+  .published-gigs-table th.col-actions,
+  .published-gigs-table td.col-actions {
+    width: 11%;
+    min-width: 76px;
+    text-align: right;
+  }
+
+  .published-gigs-table .gig-title-cell {
+    max-width: none;
+  }
+
+  .published-gigs-table .gig-main-title {
+    overflow-wrap: break-word;
+    word-break: break-word;
+    white-space: normal;
+  }
+
+  .published-gigs-table .gig-sub-desc {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .published-gigs-table .module-pill-badge {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .published-gigs-table .actions-btn-group {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    white-space: nowrap;
+  }
+}
+
 .priority-featured-tag {
   display: none !important;
 }
@@ -1603,16 +1679,17 @@ body {
   background: #ffffff;
   border: 1px solid #cbd5e1;
   color: #334155;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   text-transform: none;
-  padding: 5px 10px;
+  padding: 4px 6px;
   border-radius: 6px;
   cursor: pointer;
   outline: none;
   letter-spacing: normal;
-  min-width: 170px;
-  max-width: 100%;
+  min-width: 0;
+  max-width: 135px;
+  width: auto;
 }
 
 .table-header-select:focus {
@@ -3146,14 +3223,36 @@ body {
   border-color: #111827;
 }
 
+/* AI Discovery Queue count badge — Inactive navigation states (Overview or Published Gigs active) */
 .admin-tab-pending-badge {
-  background: rgba(255, 255, 255, 0.25);
-  color: #ffffff;
+  background: #e2e8f0;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
   font-size: 11px;
   font-weight: 800;
   padding: 1px 6px;
   border-radius: 9999px;
   margin-left: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+  transition: all 0.15s ease;
+}
+
+/* Inactive tab hover styling */
+.admin-unified-tab:hover:not(.active) .admin-tab-pending-badge {
+  background: #cbd5e1;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+/* Active AI Discovery Queue tab styling */
+.admin-unified-tab.active .admin-tab-pending-badge,
+.admin-unified-tab.active-discovery .admin-tab-pending-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+  border-color: transparent;
 }
 
 .saas-topbar-left {

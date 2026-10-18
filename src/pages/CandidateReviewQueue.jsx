@@ -512,6 +512,20 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
     }
   };
 
+  // Programmatic verification & administration triggers (preserved for automation / console administration)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__upshiftRecheckCandidateLink = (...args) => handleRecheckLink(...args);
+      window.__upshiftExportApprovedCandidates = (...args) => handleExportApproved(...args);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        delete window.__upshiftRecheckCandidateLink;
+        delete window.__upshiftExportApprovedCandidates;
+      }
+    };
+  });
+
   // 7. Save Edits (with Referral Audit History tracking, REF-01, REF-04, REF-05)
   const handleSaveEdit = (e) => {
     e.preventDefault();
@@ -685,26 +699,6 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
             }}
           >
             {isSyncing ? 'Syncing...' : 'Sync Store'}
-          </button>
-          <button
-            id="export-approved-btn"
-            onClick={handleExportApproved}
-            title="Export approved candidates to 19-column CSV"
-            style={{
-              background: '#ffffff',
-              border: '1px solid #d1d5db',
-              borderRadius: '6px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: '600',
-              color: '#111827',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            Export CSV
           </button>
         </div>
       </div>
@@ -940,12 +934,6 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
             const isPaused = c.status === CANDIDATE_STATUS.PAUSED;
             const isStopped = c.status === CANDIDATE_STATUS.STOPPED;
             const normActivity = normalizeActivityStatus(c.activity_status);
-            const activityColor = normActivity === ACTIVITY_STATUS.ACTIVE ? '#16a34a' :
-              normActivity === ACTIVITY_STATUS.PAUSED ? '#ca8a04' :
-              normActivity === ACTIVITY_STATUS.STOPPED ? '#dc2626' : '#d97706';
-            const activityBg = normActivity === ACTIVITY_STATUS.ACTIVE ? '#dcfce7' :
-              normActivity === ACTIVITY_STATUS.PAUSED ? '#fef9c3' :
-              normActivity === ACTIVITY_STATUS.STOPPED ? '#fee2e2' : '#fef3c7';
 
             return (
               <div
@@ -972,30 +960,6 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                       </span>
                       <span style={{ background: '#f1f5f9', color: '#374151', border: '1px solid #e2e8f0', fontWeight: '600', fontSize: '11px', padding: '2px 7px', borderRadius: '4px' }}>
                         {normActivity.toUpperCase()} ({c.activity_confidence}%)
-                      </span>
-                      {c.is_conventional_job ? (
-                        <span style={{ background: '#f1f5f9', color: '#4b5563', border: '1px solid #e2e8f0', fontWeight: '600', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
-                          Corporate Job
-                        </span>
-                      ) : c.is_gig ? (
-                        <span style={{ background: '#f1f5f9', color: '#111827', border: '1px solid #e2e8f0', fontWeight: '600', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
-                          Confirmed Gig ({c.gig_type || 'freelance'})
-                        </span>
-                      ) : (
-                        <span style={{ background: '#f1f5f9', color: '#4b5563', border: '1px solid #e2e8f0', fontWeight: '600', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
-                          Unconfirmed Work-Type
-                        </span>
-                      )}
-                      <span style={{
-                        background: '#f1f5f9',
-                        color: '#374151',
-                        border: '1px solid #e2e8f0',
-                        fontWeight: '600',
-                        fontSize: '10px',
-                        padding: '2px 6px',
-                        borderRadius: '4px'
-                      }}>
-                        {c.link_type === 'direct_apply' ? 'Direct Apply' : c.link_type === 'platform_login_required' ? 'Login Req.' : 'Opp. Page'}
                       </span>
                       {c.referral_required && (
                         <span style={{ background: '#f1f5f9', color: '#374151', fontWeight: '600', fontSize: '10px', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
@@ -1468,33 +1432,6 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                       )}
                     </div>
 
-                    {inspectingCandidate.application_url && isSafeHttpUrl(inspectingCandidate.application_url) && inspectingCandidate.application_url !== (inspectingCandidate.opportunity_url || inspectingCandidate.original_url) && (
-                      <div>
-                        <strong style={{ color: '#334155' }}>Application / Task-Start URL:</strong>{' '}
-                        <a
-                          href={inspectingCandidate.application_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ color: '#16a34a', fontWeight: '600', wordBreak: 'break-all' }}
-                        >
-                          {inspectingCandidate.application_url} ↗
-                        </a>
-                      </div>
-                    )}
-
-                    {(() => {
-                      const cleanResolved = (inspectingCandidate.resolved_url || '').trim().replace(/\/$/, '').toLowerCase();
-                      const cleanOpp = (inspectingCandidate.opportunity_url || inspectingCandidate.original_url || '').trim().replace(/\/$/, '').toLowerCase();
-                      const isSubstantiveRedirect = cleanResolved && cleanResolved !== cleanOpp && cleanResolved.replace(/^https?:\/\/(?:www\.)?/, '') !== cleanOpp.replace(/^https?:\/\/(?:www\.)?/, '');
-                      if (!isSubstantiveRedirect) return null;
-                      return (
-                        <div>
-                          <strong style={{ color: '#334155' }}>Resolved Destination:</strong>{' '}
-                          <span style={{ color: '#475569', wordBreak: 'break-all' }}>{inspectingCandidate.resolved_url}</span>
-                        </div>
-                      );
-                    })()}
-
                     <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <strong style={{ color: '#334155' }}>Link Reachability:</strong>{' '}
@@ -1520,94 +1457,10 @@ export default function CandidateReviewQueue({ onGigPublished, onRefreshGigs }) 
                           </span>
                         )}
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleRecheckLink(inspectingCandidate)}
-                        disabled={actionLoading}
-                        style={{
-                          background: '#f1f5f9',
-                          border: '1px solid #cbd5e1',
-                          color: '#334155',
-                          padding: '3px 9px',
-                          borderRadius: '5px',
-                          fontSize: '11px',
-                          fontWeight: '700',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Recheck Link
-                      </button>
                     </div>
-
-                    {(() => {
-                      const evidenceText = Array.isArray(inspectingCandidate.link_evidence)
-                        ? inspectingCandidate.link_evidence.filter(Boolean).join('; ')
-                        : (typeof inspectingCandidate.link_evidence === 'string' ? inspectingCandidate.link_evidence.trim() : '');
-                      if (!evidenceText) return null;
-                      return (
-                        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '8px 12px', fontSize: '11.5px', color: '#475569' }}>
-                          <strong>Link Audit Evidence:</strong> {evidenceText}
-                        </div>
-                      );
-                    })()}
 
                     <div style={{ fontSize: '11.5px', color: '#64748b', fontStyle: 'italic', background: '#f1f5f9', padding: '6px 10px', borderRadius: '4px' }}>
                       <strong>Note:</strong> Webpage accessibility verifies destination reachability only; it does not confirm freelance or task-based qualification.
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. Gig Qualification & Review Status Audit */}
-                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                    <h4 style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', margin: 0 }}>
-                      Gig Qualification & Review Status
-                    </h4>
-                    <span style={{
-                      fontSize: '11px',
-                      fontWeight: '700',
-                      padding: '3px 8px',
-                      borderRadius: '6px',
-                      background: inspectingCandidate.is_conventional_job ? '#fee2e2' : inspectingCandidate.is_gig ? '#dcfce7' : '#fef3c7',
-                      color: inspectingCandidate.is_conventional_job ? '#b91c1c' : inspectingCandidate.is_gig ? '#15803d' : '#92400e'
-                    }}>
-                      {inspectingCandidate.is_conventional_job
-                        ? 'Corporate Job (Rejected)'
-                        : inspectingCandidate.is_gig
-                        ? `Confirmed Gig (${inspectingCandidate.gig_type || 'Freelance'})`
-                        : 'Unconfirmed Work-Type'}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'grid', gap: '8px', fontSize: '12px' }}>
-                    <div>
-                      <strong style={{ color: '#334155' }}>Freelance / Task Work Confirmed:</strong>{' '}
-                      <span style={{ fontWeight: '700', color: inspectingCandidate.is_gig ? '#15803d' : inspectingCandidate.is_conventional_job ? '#b91c1c' : '#92400e' }}>
-                        {inspectingCandidate.is_gig
-                          ? `Yes — Confirmed ${inspectingCandidate.gig_type || 'Freelance / Task-based'}`
-                          : inspectingCandidate.is_conventional_job
-                          ? 'No — Rejected (Conventional Corporate Full-Time Position)'
-                          : 'No — Unconfirmed (Lacks explicit freelance, contractor, or milestone signals)'}
-                      </span>
-                    </div>
-
-                    <div>
-                      <strong style={{ color: '#334155' }}>Pending Review Rationale:</strong>{' '}
-                      <span style={{ color: '#475569' }}>
-                        {inspectingCandidate.classification_reason ||
-                         (!inspectingCandidate.is_gig
-                           ? 'Work arrangement unconfirmed. Requires human admin inspection of job description for contract/freelance terms before publishing.'
-                           : normalizeActivityStatus(inspectingCandidate.activity_status) === ACTIVITY_STATUS.NEEDS_REVIEW
-                           ? 'Automated activity check incomplete or ambiguous; requires link inspection.'
-                           : inspectingCandidate.has_conflict
-                           ? `Track fit conflict across ${inspectingCandidate.conflicting_tracks?.join(', ')}.`
-                           : 'Awaiting formal admin verification.')}
-                      </span>
-                    </div>
-
-                    <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '6px', padding: '8px 12px', fontSize: '11.5px', color: '#065f46', marginTop: '4px' }}>
-                      <strong>Learner Catalog Isolation:</strong> This listing is strictly quarantined in the staging store and <strong>cannot appear on the learner dashboard</strong> until an administrator explicitly reviews and approves it.
                     </div>
                   </div>
                 </div>
